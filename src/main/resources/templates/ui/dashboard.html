@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Dashboard - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1>Dashboard</h1>
+
+    <div class="card-grid">
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${productCount}"></div>
+            <div class="stat-card__label">Products</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${customerCount}"></div>
+            <div class="stat-card__label">Customers</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${orderCount}"></div>
+            <div class="stat-card__label">Orders</div>
+        </div>
+    </div>
+
+    <h2>Recent Orders</h2>
+    <table th:if="${not #lists.isEmpty(recentOrders)}">
+        <thead>
+        <tr>
+            <th>Order #</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Created</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="order : ${recentOrders}">
+            <td th:text="${order.orderNumber}"></td>
+            <td>
+                <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(order.status)}"
+                      th:text="${order.status}"></span>
+            </td>
+            <td th:text="${order.totalAmount} + ' ' + ${order.currencyCode}"></td>
+            <td th:text="${order.createdAt}"></td>
+            <td><a th:href="@{/ui/orders/{id}(id=${order.id})}">View</a></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:if="${#lists.isEmpty(recentOrders)}">No orders yet.</div>
+</section>
+</body>
+</html>

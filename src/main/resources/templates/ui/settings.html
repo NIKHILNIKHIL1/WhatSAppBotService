@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Settings - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1>Settings</h1>
+
+    <div class="card">
+        <h2>Store Profile</h2>
+        <p><strong>Name:</strong> <span th:text="${tenant.name}"></span></p>
+        <p><strong>Slug:</strong> <span th:text="${tenant.slug}"></span></p>
+        <p><strong>Status:</strong> <span th:text="${tenant.status}"></span></p>
+        <p><strong>Currency:</strong> <span th:text="${tenant.currencyCode}"></span></p>
+        <p><strong>Timezone:</strong> <span th:text="${tenant.timezone}"></span></p>
+    </div>
+
+    <div class="card">
+        <h2>Languages</h2>
+        <p>Customers pick from these languages at the start of a WhatsApp conversation.
+            <strong th:text="${tenant.defaultLanguageCode}"></strong> is this store's default —
+            unchecking it will be rejected, since there's currently no way to change the default
+            language separately.</p>
+        <form th:action="@{/ui/settings/languages}" th:object="${languagesForm}" method="post">
+            <div th:each="lang : ${T(com.bot.whatsappbotservice.i18n.SupportedLanguage).values()}">
+                <label>
+                    <input type="checkbox" th:field="*{supportedLanguageCodes}" th:value="${lang.code()}"/>
+                    <span th:text="${lang.nativeName()}"></span>
+                    <em th:if="${lang.code() == tenant.defaultLanguageCode}">(default)</em>
+                </label>
+            </div>
+            <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+            <button type="submit" class="btn">Save</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>WhatsApp Configuration</h2>
+        <p>
+            <strong>Access token:</strong>
+            <span th:text="${tenant.whatsappAccessTokenConfigured} ? 'Configured' : 'Not configured'"></span>
+        </p>
+        <form th:action="@{/ui/settings/whatsapp}" th:object="${whatsAppConfigForm}" method="post" autocomplete="off">
+            <div class="form-group">
+                <label for="whatsappPhoneNumberId">WhatsApp phone number ID</label>
+                <input type="text" id="whatsappPhoneNumberId" th:field="*{whatsappPhoneNumberId}"
+                       th:placeholder="${tenant.whatsappPhoneNumberId}" autocomplete="off"/>
+                <div class="field-error" th:if="${#fields.hasErrors('whatsappPhoneNumberId')}"
+                     th:errors="*{whatsappPhoneNumberId}"></div>
+            </div>
+            <div class="form-group">
+                <label for="whatsappBusinessAccountId">WhatsApp business account ID</label>
+                <input type="text" id="whatsappBusinessAccountId" th:field="*{whatsappBusinessAccountId}"
+                       th:placeholder="${tenant.whatsappBusinessAccountId}" autocomplete="off"/>
+            </div>
+            <div class="form-group">
+                <label for="whatsappAccessToken">Access token</label>
+                <input type="password" id="whatsappAccessToken" th:field="*{whatsappAccessToken}"
+                       autocomplete="new-password"/>
+                <div class="field-error" th:if="${#fields.hasErrors('whatsappAccessToken')}"
+                     th:errors="*{whatsappAccessToken}"></div>
+            </div>
+            <div class="form-group">
+                <label for="vendorNotificationPhoneNumber">Vendor notification phone number</label>
+                <input type="text" id="vendorNotificationPhoneNumber" th:field="*{vendorNotificationPhoneNumber}"
+                       th:placeholder="${tenant.vendorNotificationPhoneNumber}" autocomplete="off"/>
+            </div>
+            <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+            <button type="submit" class="btn">Save</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Twilio Configuration (Testing Fallback)</h2>
+        <p>
+            <strong>Active channel:</strong>
+            <span th:text="${tenant.messagingProvider == 'TWILIO'} ? 'Twilio' : 'WhatsApp (Meta)'"></span>
+        </p>
+        <p>
+            <strong>Auth token:</strong>
+            <span th:text="${tenant.twilioConfigured} ? 'Configured' : 'Not configured'"></span>
+        </p>
+        <form th:action="@{/ui/settings/twilio}" th:object="${twilioConfigForm}" method="post" autocomplete="off">
+            <div class="form-group">
+                <label for="twilioAccountSid">Twilio Account SID</label>
+                <input type="text" id="twilioAccountSid" th:field="*{twilioAccountSid}" autocomplete="off"/>
+                <div class="field-error" th:if="${#fields.hasErrors('twilioAccountSid')}"
+                     th:errors="*{twilioAccountSid}"></div>
+            </div>
+            <div class="form-group">
+                <label for="twilioAuthToken">Twilio Auth Token</label>
+                <input type="password" id="twilioAuthToken" th:field="*{twilioAuthToken}"
+                       autocomplete="new-password"/>
+                <div class="field-error" th:if="${#fields.hasErrors('twilioAuthToken')}"
+                     th:errors="*{twilioAuthToken}"></div>
+            </div>
+            <div class="form-group">
+                <label for="twilioWhatsAppNumber">Twilio WhatsApp number</label>
+                <input type="text" id="twilioWhatsAppNumber" th:field="*{twilioWhatsAppNumber}"
+                       th:placeholder="${tenant.twilioWhatsAppNumber}" autocomplete="off"/>
+                <div class="field-error" th:if="${#fields.hasErrors('twilioWhatsAppNumber')}"
+                     th:errors="*{twilioWhatsAppNumber}"></div>
+            </div>
+            <div class="form-group">
+                <label for="activateTwilio">
+                    <input type="checkbox" id="activateTwilio" th:field="*{activateTwilio}"/>
+                    Use Twilio as the active messaging channel
+                </label>
+            </div>
+            <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+            <button type="submit" class="btn">Save</button>
+        </form>
+    </div>
+</section>
+</body>
+</html>

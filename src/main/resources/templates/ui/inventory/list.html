@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Inventory - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1>Inventory</h1>
+    <table th:if="${inventoryItems.hasContent()}">
+        <thead>
+        <tr>
+            <th>SKU</th>
+            <th>Product</th>
+            <th>Quantity on hand</th>
+            <th>Reorder level</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="item : ${inventoryItems.content}">
+            <td th:text="${item.productSku}"></td>
+            <td th:text="${item.productName}"></td>
+            <td th:text="${item.quantityOnHand}"></td>
+            <td th:text="${item.reorderLevel}"></td>
+            <td>
+                <a th:href="@{/ui/inventory/{id}(id=${item.productId})}">Manage</a>
+                <a th:href="@{/ui/inventory/{id}/history(id=${item.productId})}">History</a>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:unless="${inventoryItems.hasContent()}">No inventory records yet.</div>
+</section>
+</body>
+</html>

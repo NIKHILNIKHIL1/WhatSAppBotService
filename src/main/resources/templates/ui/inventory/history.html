@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Stock History - WhatsAppbotService</title></head>
+<body>
+<section>
+    <div class="toolbar">
+        <h1>Stock Transaction History</h1>
+        <a th:href="@{/ui/inventory/{id}(id=${inventory.productId})}" class="btn btn-secondary">Back</a>
+    </div>
+    <table th:if="${transactions.hasContent()}">
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Change</th>
+            <th>Resulting Quantity</th>
+            <th>Notes</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="txn : ${transactions.content}">
+            <td th:text="${txn.createdAt}"></td>
+            <td th:text="${txn.transactionType}"></td>
+            <td th:text="${txn.quantityDelta}"></td>
+            <td th:text="${txn.quantityAfter}"></td>
+            <td th:text="${txn.notes}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:unless="${transactions.hasContent()}">No stock movements yet.</div>
+</section>
+</body>
+</html>

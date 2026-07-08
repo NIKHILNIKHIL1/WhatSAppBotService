@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Audit Log - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1>Audit Log</h1>
+    <table th:if="${logs.hasContent()}">
+        <thead>
+        <tr>
+            <th>When</th>
+            <th>Entity</th>
+            <th>Action</th>
+            <th>Performed by</th>
+            <th>Channel</th>
+            <th>Old value</th>
+            <th>New value</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="log : ${logs.content}">
+            <td th:text="${log.createdAt}"></td>
+            <td th:text="${log.entityName} + ' #' + ${log.entityId}"></td>
+            <td th:text="${log.action}"></td>
+            <td th:text="${log.performedBy}"></td>
+            <td th:text="${log.channel}"></td>
+            <td th:text="${log.oldValue}"></td>
+            <td th:text="${log.newValue}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:unless="${logs.hasContent()}">No audit entries yet.</div>
+</section>
+</body>
+</html>

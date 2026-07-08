@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Product - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1 th:text="${isEdit} ? 'Edit Product' : 'New Product'"></h1>
+    <form th:action="@{${formAction}}" th:object="${productForm}" method="post" class="card">
+        <div class="form-group">
+            <label for="sku">SKU</label>
+            <input type="text" id="sku" th:field="*{sku}" th:readonly="${isEdit}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('sku')}" th:errors="*{sku}"></div>
+        </div>
+        <div class="form-group">
+            <label for="name">Name</label>
+            <input type="text" id="name" th:field="*{name}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('name')}" th:errors="*{name}"></div>
+        </div>
+        <div class="form-group">
+            <label for="description">Description</label>
+            <textarea id="description" th:field="*{description}"></textarea>
+        </div>
+        <div class="card" th:if="${not #lists.isEmpty(nonDefaultSupportedLanguages)}">
+            <h2>Translations</h2>
+            <p>Shown to customers who choose a language other than this store's default. Leave
+                blank to fall back to the name/description above.</p>
+            <div class="form-group" th:each="lang : ${nonDefaultSupportedLanguages}">
+                <label th:for="'nameTranslations-' + ${lang}" th:text="'Name (' + ${lang} + ')'"></label>
+                <input type="text" th:id="'nameTranslations-' + ${lang}"
+                       th:field="*{nameTranslations[__${lang}__]}"/>
+                <label th:for="'descriptionTranslations-' + ${lang}"
+                       th:text="'Description (' + ${lang} + ')'"></label>
+                <textarea th:id="'descriptionTranslations-' + ${lang}"
+                          th:field="*{descriptionTranslations[__${lang}__]}"></textarea>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="categoryId">Category</label>
+            <select id="categoryId" th:field="*{categoryId}">
+                <option value="">None</option>
+                <option th:each="c : ${categories}" th:value="${c.id}" th:text="${c.name}"></option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="unit">Unit (e.g. kg, ltr, pcs)</label>
+            <input type="text" id="unit" th:field="*{unit}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('unit')}" th:errors="*{unit}"></div>
+        </div>
+        <div class="form-group">
+            <label for="price">Price</label>
+            <input type="number" step="0.01" id="price" th:field="*{price}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('price')}" th:errors="*{price}"></div>
+        </div>
+        <div class="form-group">
+            <label for="currencyCode">Currency code</label>
+            <input type="text" id="currencyCode" th:field="*{currencyCode}" placeholder="INR"/>
+        </div>
+        <div class="form-group">
+            <label for="imageUrl">Image URL</label>
+            <input type="text" id="imageUrl" th:field="*{imageUrl}"/>
+        </div>
+        <div class="form-group" th:unless="${isEdit}">
+            <label for="initialQuantity">Initial stock quantity</label>
+            <input type="number" step="0.001" id="initialQuantity" th:field="*{initialQuantity}"/>
+        </div>
+        <div class="form-group" th:if="${isEdit}">
+            <label><input type="checkbox" th:field="*{active}"/> Active</label>
+        </div>
+        <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+        <button type="submit" class="btn">Save</button>
+        <a th:href="@{/ui/products}" class="btn btn-secondary">Cancel</a>
+    </form>
+</section>
+</body>
+</html>

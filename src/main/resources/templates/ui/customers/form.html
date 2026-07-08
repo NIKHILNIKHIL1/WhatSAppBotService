@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Customer - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1 th:text="${isEdit} ? 'Edit Customer' : 'New Customer'"></h1>
+    <form th:action="@{${formAction}}" th:object="${customerForm}" method="post" class="card">
+        <div class="form-group">
+            <label for="phoneNumber">Phone number</label>
+            <input type="text" id="phoneNumber" th:field="*{phoneNumber}" th:readonly="${isEdit}"
+                   placeholder="+14155552671"/>
+            <div class="field-error" th:if="${#fields.hasErrors('phoneNumber')}" th:errors="*{phoneNumber}"></div>
+        </div>
+        <div class="form-group">
+            <label for="fullName">Full name</label>
+            <input type="text" id="fullName" th:field="*{fullName}"/>
+        </div>
+        <div class="form-group">
+            <label for="preferredLanguageCode">Preferred language</label>
+            <input type="text" id="preferredLanguageCode" th:field="*{preferredLanguageCode}" placeholder="en"/>
+        </div>
+        <div class="form-group" th:if="${isEdit}">
+            <label for="status">Status</label>
+            <select id="status" th:field="*{status}">
+                <option value="ACTIVE">Active</option>
+                <option value="BLOCKED">Blocked</option>
+            </select>
+        </div>
+        <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+        <button type="submit" class="btn">Save</button>
+        <a th:href="@{/ui/customers}" class="btn btn-secondary">Cancel</a>
+    </form>
+</section>
+</body>
+</html>

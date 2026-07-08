@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Customers - WhatsAppbotService</title></head>
+<body>
+<section>
+    <div class="toolbar">
+        <h1>Customers</h1>
+        <a th:href="@{/ui/customers/new}" class="btn">New Customer</a>
+    </div>
+    <table th:if="${customers.hasContent()}">
+        <thead>
+        <tr>
+            <th>Phone</th>
+            <th>Name</th>
+            <th>Language</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="customer : ${customers.content}">
+            <td th:text="${customer.phoneNumber}"></td>
+            <td th:text="${customer.fullName}"></td>
+            <td th:text="${customer.preferredLanguageCode}"></td>
+            <td>
+                <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(customer.status)}"
+                      th:text="${customer.status}"></span>
+            </td>
+            <td>
+                <a th:href="@{/ui/customers/{id}/edit(id=${customer.id})}">Edit</a>
+                <form th:if="${customer.status.name() == 'ACTIVE'}"
+                      th:action="@{/ui/customers/{id}/block(id=${customer.id})}"
+                      method="post" class="inline-form">
+                    <button type="submit" class="link-button">Block</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:unless="${customers.hasContent()}">No customers yet.</div>
+</section>
+</body>
+</html>

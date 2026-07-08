@@ -1,0 +1,125 @@
+spring:
+  application:
+    name: WhatsAppbotService
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    default-property-inclusion: non_null
+  messages:
+    basename: i18n/messages
+    encoding: UTF-8
+    fallback-to-system-locale: false
+  data:
+    redis:
+      timeout: 1000ms
+      connect-timeout: 1000ms
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:}
+    access-token-expiration-minutes: ${JWT_ACCESS_EXP_MIN:15}
+    refresh-token-expiration-days: ${JWT_REFRESH_EXP_DAYS:7}
+  encryption:
+    key: ${ENCRYPTION_KEY:}
+  whatsapp:
+    meta:
+      graph-api-base-url: ${WHATSAPP_GRAPH_API_BASE_URL:https://graph.facebook.com/v20.0}
+      verify-token: ${WHATSAPP_VERIFY_TOKEN:dairy_saas_verify_token}
+  twilio:
+    api-base-url: ${TWILIO_API_BASE_URL:https://api.twilio.com/2010-04-01}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:false}
+    auth:
+      requests-per-window: ${RATE_LIMIT_AUTH_REQUESTS:10}
+      window-seconds: ${RATE_LIMIT_AUTH_WINDOW_SECONDS:60}
+    webhook:
+      requests-per-window: ${RATE_LIMIT_WEBHOOK_REQUESTS:60}
+      window-seconds: ${RATE_LIMIT_WEBHOOK_WINDOW_SECONDS:60}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:postgresql://localhost:5432/whatsappbot
+    username: postgres
+    password: Aaru@1988!
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+app:
+  redis:
+    enabled: ${APP_REDIS_ENABLED:false}
+  jwt:
+    secret: ${JWT_SECRET:local-only-dev-secret-do-not-use-in-production-change-me-32bytes}
+  encryption:
+    key: ${ENCRYPTION_KEY:tMGOO9/3ZzEr+OnXLf1xipepfC4bzh3TZZRO/gsaWA8=}
+
+logging:
+  level:
+    com.bot.whatsappbotservice: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/${POSTGRES_DB:whatsappbot}
+    username: ${POSTGRES_USER:whatsappbot}
+    password: ${POSTGRES_PASSWORD:whatsappbot}
+  data:
+    redis:
+      host: redis
+      port: 6379
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+logging:
+  level:
+    root: INFO
+    com.bot.whatsappbotservice: INFO

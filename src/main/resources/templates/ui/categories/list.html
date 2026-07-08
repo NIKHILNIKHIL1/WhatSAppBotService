@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Categories - WhatsAppbotService</title></head>
+<body>
+<section>
+    <div class="toolbar">
+        <h1>Categories</h1>
+        <a th:href="@{/ui/categories/new}" class="btn">New Category</a>
+    </div>
+    <table th:if="${categories.hasContent()}">
+        <thead>
+        <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Display Order</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="category : ${categories.content}">
+            <td th:text="${category.name}"></td>
+            <td th:text="${category.description}"></td>
+            <td th:text="${category.displayOrder}"></td>
+            <td>
+                <span class="badge" th:classappend="${category.active} ? 'badge--active' : 'badge--inactive'"
+                      th:text="${category.active} ? 'Active' : 'Inactive'"></span>
+            </td>
+            <td>
+                <a th:href="@{/ui/categories/{id}/edit(id=${category.id})}">Edit</a>
+                <form th:if="${category.active}"
+                      th:action="@{/ui/categories/{id}/deactivate(id=${category.id})}"
+                      method="post" class="inline-form">
+                    <button type="submit" class="link-button">Deactivate</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:unless="${categories.hasContent()}">No categories yet.</div>
+</section>
+</body>
+</html>

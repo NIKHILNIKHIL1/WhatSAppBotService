@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Inventory - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1>Manage Stock</h1>
+    <div class="card">
+        <p><strong>Quantity on hand:</strong> <span th:text="${inventory.quantityOnHand}"></span></p>
+        <p><strong>Reorder level:</strong> <span th:text="${inventory.reorderLevel}"></span></p>
+        <a th:href="@{/ui/inventory/{id}/history(id=${inventory.productId})}">View transaction history</a>
+    </div>
+
+    <h2>Adjust Stock</h2>
+    <form th:action="@{/ui/inventory/{id}/adjust(id=${inventory.productId})}" th:object="${adjustmentForm}"
+          method="post" class="card">
+        <div class="form-group">
+            <label for="transactionType">Transaction type</label>
+            <select id="transactionType" th:field="*{transactionType}">
+                <option value="RECEIPT">Receipt (stock in)</option>
+                <option value="ADJUSTMENT">Adjustment</option>
+                <option value="RETURN">Return</option>
+                <option value="SALE">Sale (stock out)</option>
+                <option value="RESERVATION">Reservation</option>
+                <option value="RELEASE">Release</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="quantityDelta">Quantity change (negative to remove stock)</label>
+            <input type="number" step="0.001" id="quantityDelta" th:field="*{quantityDelta}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('quantityDelta')}" th:errors="*{quantityDelta}"></div>
+        </div>
+        <div class="form-group">
+            <label for="notes">Notes</label>
+            <textarea id="notes" th:field="*{notes}"></textarea>
+        </div>
+        <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+</section>
+</body>
+</html>

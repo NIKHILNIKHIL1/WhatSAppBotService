@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>New Order - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1>New Order</h1>
+    <form th:action="@{/ui/orders/new}" th:object="${orderForm}" method="post" class="card">
+        <div class="form-group">
+            <label for="customerId">Customer</label>
+            <select id="customerId" th:field="*{customerId}">
+                <option value="">Select a customer</option>
+                <option th:each="c : ${customers}" th:value="${c.id}"
+                        th:text="${c.fullName} + ' (' + ${c.phoneNumber} + ')'"></option>
+            </select>
+            <div class="field-error" th:if="${#fields.hasErrors('customerId')}" th:errors="*{customerId}"></div>
+        </div>
+
+        <h2>Items</h2>
+        <div th:each="line, iStat : *{lines}" class="form-group">
+            <label th:text="'Line ' + (${iStat.index} + 1)"></label>
+            <select th:field="*{lines[__${iStat.index}__].productId}">
+                <option value="">None</option>
+                <option th:each="p : ${products}" th:value="${p.id}"
+                        th:text="${p.name} + ' (' + ${p.sku} + ') - ' + ${p.price} + ' ' + ${p.currencyCode}"></option>
+            </select>
+            <input type="number" step="0.001" placeholder="Quantity"
+                   th:field="*{lines[__${iStat.index}__].quantity}"/>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">Notes</label>
+            <textarea id="notes" th:field="*{notes}"></textarea>
+        </div>
+        <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+        <button type="submit" class="btn">Create Order</button>
+        <a th:href="@{/ui/orders}" class="btn btn-secondary">Cancel</a>
+    </form>
+</section>
+</body>
+</html>

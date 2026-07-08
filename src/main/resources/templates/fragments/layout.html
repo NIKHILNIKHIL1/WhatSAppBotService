@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:fragment="page(title, content)">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title th:replace="${title}">Page Title</title>
+    <link rel="stylesheet" th:href="@{/ui/css/app.css}"/>
+</head>
+<body>
+<header class="app-header">
+    <div class="app-header__brand">WhatsAppbotService</div>
+    <nav class="app-nav">
+        <a th:href="@{/ui/dashboard}">Dashboard</a>
+        <a th:href="@{/ui/products}">Products</a>
+        <a th:href="@{/ui/categories}">Categories</a>
+        <a th:href="@{/ui/inventory}">Inventory</a>
+        <a th:href="@{/ui/orders}">Orders</a>
+        <a th:href="@{/ui/customers}">Customers</a>
+        <a th:href="@{/ui/audit}" th:if="${isVendorAdmin}">Audit</a>
+        <a th:href="@{/ui/settings}" th:if="${isVendorAdmin}">Settings</a>
+    </nav>
+    <div class="app-header__user">
+        <span th:text="${currentUserEmail}">user@example.com</span>
+        <form th:action="@{/ui/logout}" method="post" class="inline-form">
+            <button type="submit" class="link-button">Logout</button>
+        </form>
+    </div>
+</header>
+<main class="app-main">
+    <div class="flash flash--success" th:if="${successMessage}" th:text="${successMessage}"></div>
+    <div class="flash flash--error" th:if="${errorMessage}" th:text="${errorMessage}"></div>
+    <div th:replace="${content}"></div>
+</main>
+<footer class="app-footer">WhatsAppbotService &mdash; vendor console</footer>
+</body>
+</html>

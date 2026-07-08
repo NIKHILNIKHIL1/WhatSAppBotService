@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Register - WhatsAppbotService</title>
+    <link rel="stylesheet" th:href="@{/ui/css/app.css}"/>
+</head>
+<body>
+<div class="auth-page">
+    <h1>Register your store</h1>
+    <form th:action="@{/ui/register}" th:object="${registerForm}" method="post">
+        <div class="form-group">
+            <label for="tenantName">Store name</label>
+            <input type="text" id="tenantName" th:field="*{tenantName}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('tenantName')}" th:errors="*{tenantName}"></div>
+        </div>
+        <div class="form-group">
+            <label for="slug">URL slug</label>
+            <input type="text" id="slug" th:field="*{slug}" placeholder="my-store"/>
+            <div class="field-error" th:if="${#fields.hasErrors('slug')}" th:errors="*{slug}"></div>
+        </div>
+        <div class="form-group">
+            <label for="adminFullName">Your full name</label>
+            <input type="text" id="adminFullName" th:field="*{adminFullName}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('adminFullName')}" th:errors="*{adminFullName}"></div>
+        </div>
+        <div class="form-group">
+            <label for="adminEmail">Email</label>
+            <input type="email" id="adminEmail" th:field="*{adminEmail}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('adminEmail')}" th:errors="*{adminEmail}"></div>
+        </div>
+        <div class="form-group">
+            <label for="adminPassword">Password</label>
+            <input type="password" id="adminPassword" th:field="*{adminPassword}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('adminPassword')}" th:errors="*{adminPassword}"></div>
+        </div>
+        <div class="form-group">
+            <label>Languages your store supports</label>
+            <div th:each="lang : ${T(com.bot.whatsappbotservice.i18n.SupportedLanguage).values()}">
+                <label>
+                    <input type="checkbox" th:field="*{supportedLanguageCodes}" th:value="${lang.code()}"/>
+                    <span th:text="${lang.nativeName()}"></span>
+                </label>
+            </div>
+            <div class="field-error" th:if="${#fields.hasErrors('supportedLanguageCodes')}"
+                 th:errors="*{supportedLanguageCodes}"></div>
+        </div>
+        <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+        <button type="submit" class="btn">Create account</button>
+    </form>
+    <div class="auth-links">
+        <a th:href="@{/ui/login}">Already have an account? Log in</a>
+    </div>
+</div>
+</body>
+</html>

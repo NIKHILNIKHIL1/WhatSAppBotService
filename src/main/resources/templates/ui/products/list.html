@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Products - WhatsAppbotService</title></head>
+<body>
+<section>
+    <div class="toolbar">
+        <h1>Products</h1>
+        <a th:href="@{/ui/products/new}" class="btn">New Product</a>
+    </div>
+    <table th:if="${products.hasContent()}">
+        <thead>
+        <tr>
+            <th>SKU</th>
+            <th>Name</th>
+            <th>Unit</th>
+            <th>Price</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="product : ${products.content}">
+            <td th:text="${product.sku}"></td>
+            <td th:text="${product.name}"></td>
+            <td th:text="${product.unit}"></td>
+            <td th:text="${product.price} + ' ' + ${product.currencyCode}"></td>
+            <td>
+                <span class="badge" th:classappend="${product.active} ? 'badge--active' : 'badge--inactive'"
+                      th:text="${product.active} ? 'Active' : 'Inactive'"></span>
+            </td>
+            <td>
+                <a th:href="@{/ui/products/{id}/edit(id=${product.id})}">Edit</a>
+                <a th:href="@{/ui/inventory/{id}(id=${product.id})}">Stock</a>
+                <form th:if="${product.active}"
+                      th:action="@{/ui/products/{id}/deactivate(id=${product.id})}"
+                      method="post" class="inline-form">
+                    <button type="submit" class="link-button">Deactivate</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:unless="${products.hasContent()}">No products yet.</div>
+</section>
+</body>
+</html>
