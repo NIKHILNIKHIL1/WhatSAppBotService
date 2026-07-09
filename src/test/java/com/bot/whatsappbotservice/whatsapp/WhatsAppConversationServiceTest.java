@@ -315,6 +315,24 @@ class WhatsAppConversationServiceTest {
     }
 
     @Test
+    void checkoutConfirmationShowsItemizedSummaryAndTotalWithCurrency() {
+        CartLine milk = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
+        CartLine bread = new CartLine(20L, "Bread", new BigDecimal("40.00"), BigDecimal.valueOf(1));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CART_REVIEW)
+                .withCartLineAdded(milk).withCartLineAdded(bread);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+
+        conversationService.handleMessage(tenant, customer, "wamid-checkout-1", null, "CHECKOUT");
+
+        // Unlike the plain cart-review total, the checkout confirmation carries the tenant's
+        // currency code alongside the total — the customer is about to commit to this amount.
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE),
+                eq("Order Summary:\n- Milk x 3 = 165.00\n- Bread x 1 = 40.00\n\nTotal: 205.00 INR\n"
+                        + "Confirm your order?"),
+                anyList(), anyString());
+    }
+
+    @Test
     void cartReviewRemoveShowsRemovalListOfCurrentCartItems() {
         CartLine milk = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
         CartLine bread = new CartLine(20L, "Bread", new BigDecimal("40.00"), BigDecimal.valueOf(1));
@@ -400,7 +418,10 @@ class WhatsAppConversationServiceTest {
                 100L, "ORD-2026-ABC123", customer.getId(), customer.getFullName(), customer.getPhoneNumber(),
                 com.bot.whatsappbotservice.order.OrderStatus.NEW,
                 com.bot.whatsappbotservice.order.OrderChannel.WHATSAPP, "INR", new BigDecimal("165.00"),
-                new BigDecimal("165.00"), null, List.of(), java.time.Instant.now());
+                new BigDecimal("165.00"), null,
+                List.of(new com.bot.whatsappbotservice.order.dto.OrderItemResponse(
+                        1L, 10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3), new BigDecimal("165.00"))),
+                java.time.Instant.now());
         when(orderService.createOrder(any(CreateOrderRequest.class))).thenReturn(orderResponse);
 
         conversationService.handleMessage(tenant, customer, "wamid-6", null, "CONFIRM");
@@ -410,9 +431,10 @@ class WhatsAppConversationServiceTest {
         verify(sessionStore, never()).save(any(), any(), any());
         // Exact-content checks confirm real MessageFormat substitution for the {0}/{1}/{2}
         // placeholders in "bot.order.placed" and "bot.vendor.new_order" — not just that some
-        // string was sent.
+        // string was sent. Also pins down that the final receipt lists line items (product name,
+        // quantity, line total), not just the order-level total.
         verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
-                eq("Thank you! Your order ORD-2026-ABC123 has been placed. Total: 165.00 INR"));
+                eq("Thank you! Your order ORD-2026-ABC123 has been placed.\n- Milk x 3 = 165.00\n\nTotal: 165.00 INR"));
         verify(messagingService).sendText(eq(tenant), eq((Customer) null), eq("+19998887777"),
                 eq("New order received: ORD-2026-ABC123 from +14155550100 (+14155550100). Total: 165.00 INR. "
                         + "Please review and confirm it in your dashboard."));

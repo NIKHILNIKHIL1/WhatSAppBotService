@@ -16,6 +16,7 @@ import com.bot.whatsappbotservice.order.OrderChannel;
 import com.bot.whatsappbotservice.order.OrderService;
 import com.bot.whatsappbotservice.order.dto.CreateOrderRequest;
 import com.bot.whatsappbotservice.order.dto.OrderItemRequest;
+import com.bot.whatsappbotservice.order.dto.OrderItemResponse;
 import com.bot.whatsappbotservice.order.dto.OrderResponse;
 import com.bot.whatsappbotservice.tenant.MessagingProvider;
 import com.bot.whatsappbotservice.tenant.Tenant;
@@ -457,9 +458,7 @@ public class WhatsAppConversationService {
             OrderResponse order = orderService.createOrder(orderRequest);
             sessionStore.clear(tenant.getId(), customer.getPhoneNumber());
 
-            messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
-                    messages.get("bot.order.placed", lang, order.orderNumber(),
-                            String.valueOf(order.totalAmount()), order.currencyCode()));
+            messagingService.sendText(tenant, customer, customer.getPhoneNumber(), renderOrderReceipt(order, lang));
             try {
                 notifyVendor(tenant, order, customer);
             } catch (Exception e) {
@@ -624,15 +623,39 @@ public class WhatsAppConversationService {
     }
 
     private String renderCartLines(String headerKey, WhatsAppSession session, String lang) {
+        return renderCartLines(headerKey, session.cart(), null, lang);
+    }
+
+    /** {@code currencyCode == null} renders the plain "{@code Total: 165.00}" line used for
+     * in-progress browsing (cart review/reminder); a non-null currency renders
+     * "{@code Total: 165.00 INR}", used once the customer is looking at a total they're about to
+     * commit to (checkout confirmation, final order receipt). */
+    private String renderCartLines(String headerKey, List<CartLine> lines, String currencyCode, String lang) {
         StringBuilder text = new StringBuilder(messages.get(headerKey, lang));
         BigDecimal total = BigDecimal.ZERO;
-        for (CartLine line : session.cart()) {
+        for (CartLine line : lines) {
             BigDecimal lineTotal = line.unitPrice().multiply(line.quantity());
             total = total.add(lineTotal);
             text.append(messages.get("bot.cart.line", lang, line.productName(), String.valueOf(line.quantity()),
                     String.valueOf(lineTotal)));
         }
-        text.append(messages.get("bot.cart.total", lang, String.valueOf(total)));
+        text.append(currencyCode != null
+                ? messages.get("bot.cart.total_with_currency", lang, String.valueOf(total), currencyCode)
+                : messages.get("bot.cart.total", lang, String.valueOf(total)));
+        return text.toString();
+    }
+
+    /** Same line-item/total formatting as {@link #renderCartLines}, but reads from the persisted
+     * {@link OrderItemResponse} snapshots returned by {@code orderService.createOrder} rather than
+     * the in-flight session cart — the order is already committed by the time this is sent. */
+    private String renderOrderReceipt(OrderResponse order, String lang) {
+        StringBuilder text = new StringBuilder(messages.get("bot.order.placed", lang, order.orderNumber()));
+        for (OrderItemResponse item : order.items()) {
+            text.append(messages.get("bot.cart.line", lang, item.productNameSnapshot(),
+                    String.valueOf(item.quantity()), String.valueOf(item.lineTotal())));
+        }
+        text.append(messages.get("bot.cart.total_with_currency", lang, String.valueOf(order.totalAmount()),
+                order.currencyCode()));
         return text.toString();
     }
 
@@ -659,13 +682,11 @@ public class WhatsAppConversationService {
 
     private void sendCheckoutConfirmation(Tenant tenant, Customer customer, WhatsAppSession session) {
         String lang = customerLanguage(tenant, session);
-        BigDecimal total = session.cart().stream()
-                .map(line -> line.unitPrice().multiply(line.quantity()))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        String summary = renderCartLines("bot.checkout.summary_header", session.cart(), tenant.getCurrencyCode(), lang)
+                + messages.get("bot.checkout.confirm_question", lang);
         sessionStore.save(tenant.getId(), customer.getPhoneNumber(),
                 session.withLastOptionIds(List.of("CONFIRM", "CANCEL")));
-        messagingService.sendInteractiveButtons(tenant, customer, customer.getPhoneNumber(),
-                messages.get("bot.checkout.confirm_prompt", lang, String.valueOf(total), tenant.getCurrencyCode()),
+        messagingService.sendInteractiveButtons(tenant, customer, customer.getPhoneNumber(), summary,
                 List.of(ReplyButton.of("CONFIRM", messages.get("bot.checkout.confirm_button", lang)),
                         ReplyButton.of("CANCEL", messages.get("bot.checkout.cancel_button", lang))), lang);
     }
