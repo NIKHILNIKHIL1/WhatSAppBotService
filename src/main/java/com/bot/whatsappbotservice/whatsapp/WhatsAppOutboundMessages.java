@@ -46,6 +46,24 @@ final class WhatsAppOutboundMessages {
         }
     }
 
+    record DocumentMessage(
+            @JsonProperty("messaging_product") String messagingProduct,
+            String to,
+            String type,
+            DocumentPayload document) {
+        static DocumentMessage of(String to, String mediaId, String filename, String caption) {
+            return new DocumentMessage("whatsapp", to, "document",
+                    new DocumentPayload(mediaId, filename, caption));
+        }
+    }
+
+    record DocumentPayload(String id, String filename, String caption) {
+    }
+
+    /** Response shape of Meta's {@code POST /{phoneNumberId}/media} upload endpoint. */
+    record MediaUploadResponse(String id) {
+    }
+
     record Interactive(String type, InteractiveBody body, InteractiveAction action) {
     }
 

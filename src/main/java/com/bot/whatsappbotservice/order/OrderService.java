@@ -23,13 +23,17 @@ import com.bot.whatsappbotservice.tenant.Tenant;
 import com.bot.whatsappbotservice.tenant.TenantRepository;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -177,6 +181,21 @@ public class OrderService {
     @Transactional(readOnly = true)
     public Page<OrderResponse> listForCustomer(Long customerId, Pageable pageable) {
         return orderRepository.findByCustomerId(customerId, pageable).map(orderMapper::toResponse);
+    }
+
+    /** WhatsApp "my orders" — the customer's most recent orders, newest first. */
+    @Transactional(readOnly = true)
+    public List<OrderResponse> listRecentForCustomer(Long customerId, int limit) {
+        Pageable pageable = PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "createdAt"));
+        return orderRepository.findByCustomerId(customerId, pageable).map(orderMapper::toResponse).getContent();
+    }
+
+    /** WhatsApp order-history PDF export — every order for the customer within [from, to]. */
+    @Transactional(readOnly = true)
+    public List<OrderResponse> listForCustomerBetween(Long customerId, Instant from, Instant to) {
+        return orderRepository.findByCustomerIdAndCreatedAtBetweenOrderByCreatedAtDesc(customerId, from, to).stream()
+                .map(orderMapper::toResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)

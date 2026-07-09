@@ -95,6 +95,22 @@ public class WhatsAppMessagingService {
                         tenant.getWhatsappAccessToken(), toPhoneNumber, bodyText, buttons));
     }
 
+    /** Meta-only — Twilio's WhatsApp API can only send a document by fetching it from a public
+     * HTTPS URL, which this app doesn't expose; callers must gate on {@code
+     * tenant.getMessagingProvider()} before reaching here (see {@code WhatsAppConversationService}'s
+     * order-history flow, the only caller today). */
+    @Transactional
+    public MessageStatus sendDocument(Tenant tenant, Customer customer, String toPhoneNumber, byte[] documentBytes,
+                                       String filename, String caption) {
+        return sendAndLog(tenant, customer, toPhoneNumber, "document", Map.of("filename", filename, "caption", caption),
+                () -> {
+                    String mediaId = whatsAppClient.uploadMedia(tenant.getWhatsappPhoneNumberId(),
+                            tenant.getWhatsappAccessToken(), filename, "application/pdf", documentBytes);
+                    return whatsAppClient.sendDocumentByMediaId(tenant.getWhatsappPhoneNumberId(),
+                            tenant.getWhatsappAccessToken(), toPhoneNumber, mediaId, filename, caption);
+                });
+    }
+
     private boolean isTwilio(Tenant tenant) {
         return tenant.getMessagingProvider() == MessagingProvider.TWILIO;
     }

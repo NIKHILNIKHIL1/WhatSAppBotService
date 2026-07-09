@@ -42,6 +42,15 @@ public record WhatsAppSession(
         return new WhatsAppSession(step, languageCode, null, null, new ArrayList<>(), lastOptionIds);
     }
 
+    /** {@code index} must be a valid index into {@link #cart()} — callers resolve and bounds-check
+     * it against the cart size before calling this (see how {@code lastOptionIds} is used to do so
+     * for every other reply-driven action in the flow). */
+    public WhatsAppSession withCartLineRemoved(int index) {
+        List<CartLine> updated = new ArrayList<>(cart);
+        updated.remove(index);
+        return new WhatsAppSession(step, languageCode, categoryId, selectedProductId, updated, lastOptionIds);
+    }
+
     public WhatsAppSession withLastOptionIds(List<String> newLastOptionIds) {
         return new WhatsAppSession(step, languageCode, categoryId, selectedProductId, cart, newLastOptionIds);
     }

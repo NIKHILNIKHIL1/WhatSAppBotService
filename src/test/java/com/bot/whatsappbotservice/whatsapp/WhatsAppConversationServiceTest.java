@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -18,11 +19,17 @@ import com.bot.whatsappbotservice.common.exception.BusinessRuleViolationExceptio
 import com.bot.whatsappbotservice.customer.Customer;
 import com.bot.whatsappbotservice.customer.CustomerRepository;
 import com.bot.whatsappbotservice.i18n.WhatsAppMessages;
+import com.bot.whatsappbotservice.inventory.Inventory;
+import com.bot.whatsappbotservice.inventory.InventoryRepository;
 import com.bot.whatsappbotservice.order.OrderService;
 import com.bot.whatsappbotservice.order.dto.CreateOrderRequest;
 import com.bot.whatsappbotservice.order.dto.OrderResponse;
+import com.bot.whatsappbotservice.order.OrderChannel;
+import com.bot.whatsappbotservice.order.OrderStatus;
+import com.bot.whatsappbotservice.tenant.MessagingProvider;
 import com.bot.whatsappbotservice.tenant.Tenant;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -48,6 +55,8 @@ class WhatsAppConversationServiceTest {
     @Mock
     private ProductRepository productRepository;
     @Mock
+    private InventoryRepository inventoryRepository;
+    @Mock
     private CustomerRepository customerRepository;
     @Mock
     private OrderService orderService;
@@ -63,10 +72,11 @@ class WhatsAppConversationServiceTest {
         messageSource.setBasename("i18n/messages");
         messageSource.setDefaultEncoding("UTF-8");
         WhatsAppMessages messages = new WhatsAppMessages(messageSource);
+        OrderHistoryPdfGenerator orderHistoryPdfGenerator = new OrderHistoryPdfGenerator(messages);
 
         conversationService = new WhatsAppConversationService(
-                sessionStore, messagingService, categoryRepository, productRepository, customerRepository,
-                orderService, messages);
+                sessionStore, messagingService, categoryRepository, productRepository, inventoryRepository,
+                customerRepository, orderService, orderHistoryPdfGenerator, messages);
 
         tenant = new Tenant();
         tenant.setId(TENANT_ID);
@@ -144,6 +154,95 @@ class WhatsAppConversationServiceTest {
     }
 
     @Test
+    void emptyProductListSendsCustomerBackToCategorySelectionWithCartPreserved() {
+        CartLine existingLine = new CartLine(10L, "Cream Milk", new BigDecimal("150.00"), BigDecimal.valueOf(12));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION)
+                .withCartLineAdded(existingLine);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Category butterMilk = new Category();
+        butterMilk.setId(6L);
+        butterMilk.setActive(true);
+        when(categoryRepository.findById(6L)).thenReturn(Optional.of(butterMilk));
+        when(productRepository.findByCategoryId(eq(6L), any())).thenReturn(new PageImpl<>(List.of()));
+        Category dairy = new Category();
+        dairy.setId(5L);
+        dairy.setName("Dairy");
+        when(categoryRepository.findByActiveTrue(any())).thenReturn(new PageImpl<>(List.of(dairy)));
+
+        conversationService.handleMessage(tenant, customer, "wamid-2b", null, "cat:6");
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        // The dead-end this guards against: previously the session stayed on PRODUCT_SELECTION
+        // with an empty option list, so every later reply bounced forever between "Please select a
+        // product from the list." and "No products available in this category yet." — recovering
+        // to CATEGORY_SELECTION (with the cart intact) is what breaks that loop.
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CATEGORY_SELECTION);
+        assertThat(captor.getValue().cart()).containsExactly(existingLine);
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("No products available in this category yet."));
+        verify(messagingService).sendInteractiveList(eq(tenant), eq(customer), eq(PHONE), anyString(), anyString(), anyList(), anyString());
+    }
+
+    @Test
+    void selectingOutOfStockProductRepromptsProductListInsteadOfAdvancing() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.PRODUCT_SELECTION).withCategory(5L);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Product creamMilk = new Product();
+        creamMilk.setId(11L);
+        creamMilk.setActive(true);
+        creamMilk.setName("Cream Milk");
+        when(productRepository.findById(11L)).thenReturn(Optional.of(creamMilk));
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(BigDecimal.ZERO);
+        when(inventoryRepository.findByProductId(11L)).thenReturn(Optional.of(inventory));
+        when(productRepository.findByCategoryId(eq(5L), any())).thenReturn(new PageImpl<>(List.of(creamMilk)));
+
+        conversationService.handleMessage(tenant, customer, "wamid-3b", null, "prod:11");
+
+        // sendProductList re-listing the (still out-of-stock) product does persist a session — the
+        // point being verified here is that it stays on PRODUCT_SELECTION rather than advancing.
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.PRODUCT_SELECTION);
+        assertThat(captor.getValue().selectedProductId()).isNull();
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("Sorry, Cream Milk just went out of stock. Please choose another product."));
+        verify(messagingService).sendInteractiveList(eq(tenant), eq(customer), eq(PHONE), anyString(), anyString(), anyList(), anyString());
+    }
+
+    @Test
+    void selectingOutOfStockProductWithExistingCartRemindsCustomerWhatsAlreadyInCart() {
+        CartLine existingLine = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(2));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.PRODUCT_SELECTION)
+                .withCategory(5L).withCartLineAdded(existingLine);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Product creamMilk = new Product();
+        creamMilk.setId(11L);
+        creamMilk.setActive(true);
+        creamMilk.setName("Cream Milk");
+        when(productRepository.findById(11L)).thenReturn(Optional.of(creamMilk));
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(BigDecimal.ZERO);
+        when(inventoryRepository.findByProductId(11L)).thenReturn(Optional.of(inventory));
+        when(productRepository.findByCategoryId(eq(5L), any())).thenReturn(new PageImpl<>(List.of(creamMilk)));
+
+        conversationService.handleMessage(tenant, customer, "wamid-3c", null, "prod:11");
+
+        // The dead-end this guards against: a customer who already added an item, then hits an
+        // out-of-stock pick, previously only ever saw "please choose another product" with no
+        // reminder of what they'd already added — reading as if the earlier item had been lost.
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().cart()).containsExactly(existingLine);
+        ArgumentCaptor<String> textCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messagingService, times(2)).sendText(eq(tenant), eq(customer), eq(PHONE), textCaptor.capture());
+        assertThat(textCaptor.getAllValues().get(0))
+                .isEqualTo("Sorry, Cream Milk just went out of stock. Please choose another product.");
+        assertThat(textCaptor.getAllValues().get(1)).contains("Milk").contains("2").contains("110.00");
+    }
+
+    @Test
     void productSelectionAdvancesToQuantityEntry() {
         WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.PRODUCT_SELECTION).withCategory(5L);
         when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
@@ -154,6 +253,9 @@ class WhatsAppConversationServiceTest {
         milk.setUnit("ltr");
         milk.setPrice(new BigDecimal("55.00"));
         when(productRepository.findById(10L)).thenReturn(Optional.of(milk));
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(new BigDecimal("20"));
+        when(inventoryRepository.findByProductId(10L)).thenReturn(Optional.of(inventory));
 
         conversationService.handleMessage(tenant, customer, "wamid-3", null, "prod:10");
 
@@ -213,6 +315,82 @@ class WhatsAppConversationServiceTest {
     }
 
     @Test
+    void cartReviewRemoveShowsRemovalListOfCurrentCartItems() {
+        CartLine milk = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
+        CartLine bread = new CartLine(20L, "Bread", new BigDecimal("40.00"), BigDecimal.valueOf(1));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CART_REVIEW)
+                .withCartLineAdded(milk).withCartLineAdded(bread);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+
+        conversationService.handleMessage(tenant, customer, "wamid-5b", null, "REMOVE");
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CART_REMOVE_SELECTION);
+        // rmv:0 / rmv:1 address the two cart lines by index; the trailing id lets the customer
+        // back out of removal without touching the cart.
+        assertThat(captor.getValue().lastOptionIds()).containsExactly("rmv:0", "rmv:1", "cart:back");
+        verify(messagingService).sendInteractiveList(eq(tenant), eq(customer), eq(PHONE), anyString(), anyString(),
+                anyList(), anyString());
+    }
+
+    @Test
+    void removingCartLineDeletesItAndReturnsToCartSummary() {
+        CartLine milk = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
+        CartLine bread = new CartLine(20L, "Bread", new BigDecimal("40.00"), BigDecimal.valueOf(1));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CART_REMOVE_SELECTION)
+                .withCartLineAdded(milk).withCartLineAdded(bread);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+
+        conversationService.handleMessage(tenant, customer, "wamid-5c", null, "rmv:0");
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CART_REVIEW);
+        assertThat(captor.getValue().cart()).containsExactly(bread);
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE), eq("Removed Milk from your cart."));
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE), anyString(), anyList(),
+                anyString());
+    }
+
+    @Test
+    void removingLastCartLineSendsBackToCategorySelectionWithEmptyCart() {
+        CartLine milk = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CART_REMOVE_SELECTION)
+                .withCartLineAdded(milk);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(categoryRepository.findByActiveTrue(any())).thenReturn(new PageImpl<>(List.of()));
+
+        conversationService.handleMessage(tenant, customer, "wamid-5d", null, "rmv:0");
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CATEGORY_SELECTION);
+        assertThat(captor.getValue().cart()).isEmpty();
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE), eq("Removed Milk from your cart."));
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("Your cart is now empty. Let's find something for you!"));
+    }
+
+    @Test
+    void cartRemoveBackReturnsToCartSummaryWithoutChangingCart() {
+        CartLine milk = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CART_REMOVE_SELECTION)
+                .withCartLineAdded(milk);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+
+        conversationService.handleMessage(tenant, customer, "wamid-5e", null, "cart:back");
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CART_REVIEW);
+        assertThat(captor.getValue().cart()).containsExactly(milk);
+        verify(messagingService, never()).sendText(any(), any(), any(), any());
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE), anyString(), anyList(),
+                anyString());
+    }
+
+    @Test
     void confirmingOrderCreatesOrderNotifiesCustomerAndVendorThenClearsSession() {
         CartLine line = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
         WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CHECKOUT_CONFIRM).withCartLineAdded(line);
@@ -266,5 +444,100 @@ class WhatsAppConversationServiceTest {
         verify(messagingService, times(2)).sendText(eq(tenant), eq(customer), eq(PHONE), textCaptor.capture());
         assertThat(textCaptor.getAllValues().get(0))
                 .isEqualTo("Sorry, we couldn't place your order: Insufficient stock. Let's start again.");
+    }
+
+    private OrderResponse sampleOrder(String orderNumber, OrderStatus status, BigDecimal total, Instant createdAt) {
+        return new OrderResponse(1L, orderNumber, customer.getId(), null, customer.getPhoneNumber(), status,
+                OrderChannel.WHATSAPP, "INR", total, total, null, List.of(), createdAt);
+    }
+
+    @Test
+    void typingOrdersShowsRecentOrdersAndHistoryPeriodButtons() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(orderService.listRecentForCustomer(eq(customer.getId()), eq(3))).thenReturn(List.of(
+                sampleOrder("ORD-1", OrderStatus.DELIVERED, new BigDecimal("100.00"), Instant.now()),
+                sampleOrder("ORD-2", OrderStatus.NEW, new BigDecimal("50.00"), Instant.now())));
+
+        conversationService.handleMessage(tenant, customer, "wamid-orders-1", "orders", null);
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.ORDER_HISTORY_MENU);
+        assertThat(captor.getValue().lastOptionIds()).containsExactly("HISTORY_WEEK", "HISTORY_MONTH", "HISTORY_YEAR");
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                argThat(text -> text.contains("ORD-1") && text.contains("ORD-2")));
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE), anyString(), anyList(),
+                anyString());
+    }
+
+    @Test
+    void ordersTriggerWithNoOrdersLeavesSessionUntouched() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(orderService.listRecentForCustomer(eq(customer.getId()), eq(3))).thenReturn(List.of());
+
+        conversationService.handleMessage(tenant, customer, "wamid-orders-2", "my orders", null);
+
+        // No history to page through — leaving the session untouched (no step change, no
+        // Week/Month/Year buttons for an empty history) means whatever the customer was doing
+        // before is still exactly where they left it.
+        verify(sessionStore, never()).save(any(), any(), any());
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("You haven't placed any orders yet. Type 'menu' to browse and place your first order!"));
+        verify(messagingService, never()).sendInteractiveButtons(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void historyPeriodButtonSendsPdfDocumentForMetaTenant() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.ORDER_HISTORY_MENU)
+                .withLastOptionIds(List.of("HISTORY_WEEK", "HISTORY_MONTH", "HISTORY_YEAR"));
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(orderService.listForCustomerBetween(eq(customer.getId()), any(Instant.class), any(Instant.class)))
+                .thenReturn(List.of(sampleOrder("ORD-1", OrderStatus.DELIVERED, new BigDecimal("100.00"), Instant.now())));
+        when(categoryRepository.findByActiveTrue(any())).thenReturn(new PageImpl<>(List.of()));
+
+        conversationService.handleMessage(tenant, customer, "wamid-orders-3", null, "HISTORY_WEEK");
+
+        ArgumentCaptor<byte[]> pdfCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(messagingService).sendDocument(eq(tenant), eq(customer), eq(PHONE), pdfCaptor.capture(),
+                eq("order-history.pdf"), anyString());
+        byte[] pdfBytes = pdfCaptor.getValue();
+        assertThat(pdfBytes).isNotEmpty();
+        assertThat(new String(pdfBytes, 0, 4, java.nio.charset.StandardCharsets.US_ASCII)).isEqualTo("%PDF");
+        // Lands back on the browsing hub afterward, same as every other mid-flow detour.
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("Sorry, no categories are available right now. Please check back later."));
+    }
+
+    @Test
+    void historyPeriodButtonFallsBackForTwilioTenant() {
+        tenant.setMessagingProvider(MessagingProvider.TWILIO);
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.ORDER_HISTORY_MENU)
+                .withLastOptionIds(List.of("HISTORY_WEEK", "HISTORY_MONTH", "HISTORY_YEAR"));
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(categoryRepository.findByActiveTrue(any())).thenReturn(new PageImpl<>(List.of()));
+
+        conversationService.handleMessage(tenant, customer, "wamid-orders-4", null, "HISTORY_MONTH");
+
+        verify(messagingService, never()).sendDocument(any(), any(), any(), any(), any(), any());
+        verify(orderService, never()).listForCustomerBetween(any(), any(), any());
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("Downloadable order history isn't available on this channel yet — please contact us directly."));
+    }
+
+    @Test
+    void helpTriggerMidQuantityEntryDoesNotDisturbInProgressSession() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.QUANTITY_ENTRY)
+                .withCategory(5L).withSelectedProduct(10L);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+
+        conversationService.handleMessage(tenant, customer, "wamid-help-1", "help", null);
+
+        // Help is a pure side channel: no session save at all, so the quantity-entry prompt the
+        // customer was already looking at is still exactly what they should reply to next.
+        verify(sessionStore, never()).save(any(), any(), any());
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                argThat(text -> text.contains("menu") && text.contains("orders")));
     }
 }

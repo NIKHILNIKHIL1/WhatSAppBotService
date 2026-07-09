@@ -131,6 +131,14 @@
             <version>8.0</version>
         </dependency>
 
+        <!-- Order-history PDF export (WhatsApp bot). LGPL/MPL dual-licensed iText 4 fork —
+             deliberately not iText 5/7 (AGPL) — chosen for its simple PdfPTable API. -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>1.3.30</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
