@@ -56,6 +56,9 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         } else if (path.startsWith("/api/whatsapp/webhook") || path.startsWith("/api/twilio/webhook")) {
             window = properties.webhook();
             bucket = "webhook";
+        } else if (path.startsWith("/store/") && path.endsWith("/login")) {
+            window = properties.otpRequest();
+            bucket = "otp";
         } else {
             filterChain.doFilter(request, response);
             return;

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:fragment="page(title, content)">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title th:replace="${title}">Store</title>
+    <link rel="stylesheet" th:href="@{/ui/css/app.css}"/>
+</head>
+<body>
+<header class="app-header">
+    <div class="app-header__brand" th:text="${storeName} ?: 'Store'">Store</div>
+    <nav class="app-nav" th:if="${slug}">
+        <a th:href="@{'/store/' + ${slug}}">Categories</a>
+        <a th:href="@{'/store/' + ${slug} + '/cart'}">Cart</a>
+        <a th:href="@{'/store/' + ${slug} + '/orders'}">My Orders</a>
+    </nav>
+</header>
+<main class="app-main">
+    <div class="flash flash--success" th:if="${successMessage}" th:text="${successMessage}"></div>
+    <div class="flash flash--error" th:if="${errorMessage}" th:text="${errorMessage}"></div>
+    <div th:replace="${content}"></div>
+</main>
+</body>
+</html>

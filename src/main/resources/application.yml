@@ -63,6 +63,9 @@ app:
     webhook:
       requests-per-window: ${RATE_LIMIT_WEBHOOK_REQUESTS:60}
       window-seconds: ${RATE_LIMIT_WEBHOOK_WINDOW_SECONDS:60}
+    otp-request:
+      requests-per-window: ${RATE_LIMIT_OTP_REQUESTS:5}
+      window-seconds: ${RATE_LIMIT_OTP_WINDOW_SECONDS:300}
 
 ---
 spring:

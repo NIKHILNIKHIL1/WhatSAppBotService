@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/storefront-layout :: page(~{::title}, ~{::section})}">
+<head><title th:text="(${storeName} ?: 'Store') + ' - Categories'">Store - Categories</title></head>
+<body>
+<section>
+    <h1 th:text="${storeName}">Store</h1>
+    <div class="card-grid" th:if="${not #lists.isEmpty(categories)}">
+        <a class="card" th:each="c : ${categories}"
+           th:href="@{'/store/' + ${slug} + '/products'(categoryId=${c.id},lang=${lang})}">
+            <h2 th:text="${localization.name(c)}">Category</h2>
+            <p th:if="${localization.description(c)}" th:text="${localization.description(c)}"></p>
+        </a>
+    </div>
+    <div class="empty-state" th:if="${#lists.isEmpty(categories)}">No categories available yet.</div>
+</section>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/storefront-layout :: page(~{::title}, ~{::section})}">
+<head><title th:text="(${storeName} ?: 'Store') + ' - Products'">Store - Products</title></head>
+<body>
+<section>
+    <p><a th:href="@{'/store/' + ${slug}}">&larr; Back to categories</a></p>
+    <div class="card-grid" th:if="${not #lists.isEmpty(products)}">
+        <div class="card" th:each="p : ${products}">
+            <h2 th:text="${localization.name(p)}">Product</h2>
+            <p th:if="${localization.description(p)}" th:text="${localization.description(p)}"></p>
+            <p th:text="${p.price} + ' ' + ${p.currencyCode} + ' / ' + ${p.unit}"></p>
+            <form th:action="@{'/store/' + ${slug} + '/cart/add'}" method="post" class="inline-form">
+                <input type="hidden" name="productId" th:value="${p.id}"/>
+                <input type="number" name="quantity" step="0.001" min="0.001" value="1"/>
+                <button type="submit" class="btn">Add to cart</button>
+            </form>
+        </div>
+    </div>
+    <div class="empty-state" th:if="${#lists.isEmpty(products)}">No products available.</div>
+</section>
+</body>
+</html>

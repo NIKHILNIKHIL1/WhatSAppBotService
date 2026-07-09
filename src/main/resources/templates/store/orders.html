@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/storefront-layout :: page(~{::title}, ~{::section})}">
+<head><title th:text="(${storeName} ?: 'Store') + ' - My Orders'">Store - My Orders</title></head>
+<body>
+<section>
+    <h1>My orders</h1>
+    <table th:if="${orders.hasContent()}">
+        <thead>
+        <tr>
+            <th>Order #</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Placed</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="order : ${orders.content}">
+            <td th:text="${order.orderNumber}"></td>
+            <td>
+                <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(order.status)}"
+                      th:text="${order.status}"></span>
+            </td>
+            <td th:text="${order.totalAmount} + ' ' + ${order.currencyCode}"></td>
+            <td th:text="${order.createdAt}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:unless="${orders.hasContent()}">You haven't placed any orders yet.</div>
+</section>
+</body>
+</html>

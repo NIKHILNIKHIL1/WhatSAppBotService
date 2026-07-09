@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/storefront-layout :: page(~{::title}, ~{::section})}">
+<head><title th:text="(${storeName} ?: 'Store') + ' - Cart'">Store - Cart</title></head>
+<body>
+<section>
+    <h1>Your cart</h1>
+    <table th:if="${not #lists.isEmpty(lines)}">
+        <thead>
+        <tr>
+            <th>Product</th>
+            <th>Quantity</th>
+            <th>Line total</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="line : ${lines}">
+            <td th:text="${localization.name(line.product)}"></td>
+            <td th:text="${line.quantity}"></td>
+            <td th:text="${line.lineTotal} + ' ' + ${line.product.currencyCode}"></td>
+            <td>
+                <form th:action="@{'/store/' + ${slug} + '/cart/remove'}" method="post" class="inline-form">
+                    <input type="hidden" name="productId" th:value="${line.product.id}"/>
+                    <button type="submit" class="link-button">Remove</button>
+                </form>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+    <p th:if="${not #lists.isEmpty(lines)}"><strong>Total: </strong><span th:text="${total}"></span></p>
+    <form th:if="${not #lists.isEmpty(lines)}" th:action="@{'/store/' + ${slug} + '/checkout'}" method="post">
+        <button type="submit" class="btn">Place order</button>
+    </form>
+    <div class="empty-state" th:if="${#lists.isEmpty(lines)}">Your cart is empty.</div>
+</section>
+</body>
+</html>

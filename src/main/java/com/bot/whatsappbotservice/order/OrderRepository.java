@@ -10,4 +10,6 @@ public interface OrderRepository extends JpaRepository<OrderHeader, Long> {
     Optional<OrderHeader> findByIdempotencyKey(String idempotencyKey);
 
     Page<OrderHeader> findByStatus(OrderStatus status, Pageable pageable);
+
+    Page<OrderHeader> findByCustomerId(Long customerId, Pageable pageable);
 }

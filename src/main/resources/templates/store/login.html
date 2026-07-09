@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/storefront-layout :: page(~{::title}, ~{::section})}">
+<head><title th:text="(${storeName} ?: 'Store') + ' - Login'">Store - Login</title></head>
+<body>
+<section>
+    <h1>Log in</h1>
+    <p>Enter your WhatsApp number and we'll send you a one-time code.</p>
+    <form th:action="@{'/store/' + ${slug} + '/login'}" th:object="${loginForm}" method="post" class="card">
+        <div class="form-group">
+            <label for="phoneNumber">Phone number</label>
+            <input type="text" id="phoneNumber" th:field="*{phoneNumber}" placeholder="+14155550100"/>
+            <div class="field-error" th:if="${#fields.hasErrors('phoneNumber')}" th:errors="*{phoneNumber}"></div>
+        </div>
+        <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+        <button type="submit" class="btn">Send code</button>
+    </form>
+</section>
+</body>
+</html>

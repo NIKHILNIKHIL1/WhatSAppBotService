@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/storefront-layout :: page(~{::title}, ~{::section})}">
+<head><title th:text="(${storeName} ?: 'Store') + ' - Enter code'">Store - Enter code</title></head>
+<body>
+<section>
+    <h1>Enter your code</h1>
+    <p>We sent a 6-digit code to your WhatsApp number.</p>
+    <form th:action="@{'/store/' + ${slug} + '/verify'}" th:object="${verifyForm}" method="post" class="card">
+        <div class="form-group">
+            <label for="phoneNumber">Phone number</label>
+            <input type="text" id="phoneNumber" th:field="*{phoneNumber}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('phoneNumber')}" th:errors="*{phoneNumber}"></div>
+        </div>
+        <div class="form-group">
+            <label for="code">Code</label>
+            <input type="text" id="code" th:field="*{code}" inputmode="numeric" maxlength="6"/>
+            <div class="field-error" th:if="${#fields.hasErrors('code')}" th:errors="*{code}"></div>
+        </div>
+        <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
+        <button type="submit" class="btn">Verify</button>
+    </form>
+</section>
+</body>
+</html>

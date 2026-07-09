@@ -32,7 +32,8 @@ class RateLimitingFilterTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         properties = new RateLimitProperties(true,
                 new RateLimitProperties.Window(3, 60),
-                new RateLimitProperties.Window(5, 60));
+                new RateLimitProperties.Window(5, 60),
+                new RateLimitProperties.Window(2, 300));
         filter = new RateLimitingFilter(redisTemplate, properties);
         chain = mock(FilterChain.class);
     }
@@ -89,7 +90,8 @@ class RateLimitingFilterTest {
     @Test
     void disabledConfigurationBypassesRateLimitingEntirely() throws Exception {
         RateLimitProperties disabled = new RateLimitProperties(false,
-                new RateLimitProperties.Window(3, 60), new RateLimitProperties.Window(5, 60));
+                new RateLimitProperties.Window(3, 60), new RateLimitProperties.Window(5, 60),
+                new RateLimitProperties.Window(2, 300));
         RateLimitingFilter disabledFilter = new RateLimitingFilter(redisTemplate, disabled);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/login");
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -109,5 +111,28 @@ class RateLimitingFilterTest {
         filter.doFilter(request, response, chain);
 
         assertThat(response.getStatus()).isEqualTo(429);
+    }
+
+    @Test
+    void appliesOtpLimitToStorefrontLoginPathDespiteVariableSlugSegment() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/store/acme-dairy/login");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        when(valueOperations.increment(anyString())).thenReturn(3L);
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain, never()).doFilter(any(), any());
+        assertThat(response.getStatus()).isEqualTo(429);
+    }
+
+    @Test
+    void doesNotRateLimitOtherStorefrontPaths() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/store/acme-dairy/products");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verify(redisTemplate, never()).opsForValue();
     }
 }

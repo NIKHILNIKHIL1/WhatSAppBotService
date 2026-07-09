@@ -172,6 +172,13 @@ public class OrderService {
         return page.map(orderMapper::toResponse);
     }
 
+    /** Storefront-facing: a customer's own orders only, never another customer's or the full
+     * tenant list — {@link #list} stays vendor-facing and untouched. */
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> listForCustomer(Long customerId, Pageable pageable) {
+        return orderRepository.findByCustomerId(customerId, pageable).map(orderMapper::toResponse);
+    }
+
     @Transactional(readOnly = true)
     public Page<OrderStatusHistoryResponse> history(Long orderId, Pageable pageable) {
         getOrThrow(orderId);
