@@ -527,6 +527,89 @@ class WhatsAppConversationServiceTest {
     }
 
     @Test
+    void productCodeEntryFromCategorySelectionSkipsStraightToQuantityEntry() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Product milk = new Product();
+        milk.setId(10L);
+        milk.setActive(true);
+        milk.setName("Milk");
+        milk.setUnit("ltr");
+        milk.setPrice(new BigDecimal("55.00"));
+        when(productRepository.findBySkuIgnoreCase("milk123")).thenReturn(Optional.of(milk));
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(new BigDecimal("20"));
+        when(inventoryRepository.findByProductId(10L)).thenReturn(Optional.of(inventory));
+
+        conversationService.handleMessage(tenant, customer, "wamid-code-1", "MILK123", null);
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.QUANTITY_ENTRY);
+        assertThat(captor.getValue().selectedProductId()).isEqualTo(10L);
+        verify(categoryRepository, never()).findByActiveTrue(any());
+        verify(productRepository, never()).findByCategoryId(any(), any());
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE), anyString());
+    }
+
+    @Test
+    void productCodeEntryForOutOfStockProductRepromptsCategoryList() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Product milk = new Product();
+        milk.setId(10L);
+        milk.setActive(true);
+        milk.setName("Milk");
+        when(productRepository.findBySkuIgnoreCase("milk123")).thenReturn(Optional.of(milk));
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(BigDecimal.ZERO);
+        when(inventoryRepository.findByProductId(10L)).thenReturn(Optional.of(inventory));
+        when(categoryRepository.findByActiveTrue(any())).thenReturn(new PageImpl<>(List.of()));
+
+        conversationService.handleMessage(tenant, customer, "wamid-code-2", "milk123", null);
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CATEGORY_SELECTION);
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("Sorry, Milk just went out of stock. Please choose another product."));
+    }
+
+    @Test
+    void unrecognizedTextDuringCategorySelectionFallsBackToNormalInvalidHandling() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(productRepository.findBySkuIgnoreCase("not-a-code")).thenReturn(Optional.empty());
+        when(categoryRepository.findByActiveTrue(any())).thenReturn(new PageImpl<>(List.of()));
+
+        conversationService.handleMessage(tenant, customer, "wamid-code-3", "not-a-code", null);
+
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("Please select a category from the list."));
+    }
+
+    @Test
+    void productCodeEntryIgnoredDuringQuantityEntrySoNumericFallbackStillWins() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.QUANTITY_ENTRY)
+                .withCategory(5L).withSelectedProduct(10L);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Product milk = new Product();
+        milk.setId(10L);
+        milk.setActive(true);
+        milk.setName("Milk");
+        milk.setUnit("ltr");
+        milk.setPrice(new BigDecimal("55.00"));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(milk));
+
+        conversationService.handleMessage(tenant, customer, "wamid-code-4", "3", null);
+
+        verify(productRepository, never()).findBySkuIgnoreCase(any());
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CART_REVIEW);
+    }
+
+    @Test
     void helpTriggerMidQuantityEntryDoesNotDisturbInProgressSession() {
         WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.QUANTITY_ENTRY)
                 .withCategory(5L).withSelectedProduct(10L);

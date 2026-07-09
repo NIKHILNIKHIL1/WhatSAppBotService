@@ -137,6 +137,22 @@ public class WhatsAppConversationService {
             return;
         }
 
+        // Another global escape hatch: free text that isn't a recognized reply/keyword and matches
+        // an active product's SKU lets the customer skip straight to quantity entry, bypassing
+        // category/product browsing entirely. Not offered before LANGUAGE_SELECTION completes (bot
+        // copy needs a language first) or mid QUANTITY_ENTRY (free text there is already a quantity
+        // reply for the product already selected).
+        if (resolvedReplyId == null && normalizedText != null && !normalizedText.isBlank()
+                && session.step() != ConversationStep.LANGUAGE_SELECTION
+                && session.step() != ConversationStep.QUANTITY_ENTRY) {
+            Optional<Product> productByCode = productRepository.findBySkuIgnoreCase(normalizedText)
+                    .filter(Product::isActive);
+            if (productByCode.isPresent()) {
+                handleProductCodeEntry(tenant, customer, session, productByCode.get());
+                return;
+            }
+        }
+
         switch (session.step()) {
             case LANGUAGE_SELECTION -> handleLanguageSelection(tenant, customer, session, normalizedText);
             case CATEGORY_SELECTION -> handleCategorySelection(tenant, customer, session, resolvedReplyId);
@@ -235,6 +251,25 @@ public class WhatsAppConversationService {
         sessionStore.save(tenant.getId(), customer.getPhoneNumber(), updated);
         messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
                 messages.get("bot.quantity.prompt", lang, product.get().getUnit(), product.get().getLocalizedName(lang)));
+    }
+
+    /** Same destination as {@link #handleProductSelection}'s success path (straight to quantity
+     * entry) — just reached via a typed SKU instead of a category/product list tap. */
+    private void handleProductCodeEntry(Tenant tenant, Customer customer, WhatsAppSession session, Product product) {
+        String lang = customerLanguage(tenant, session);
+        if (isOutOfStock(product.getId())) {
+            messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
+                    messages.get("bot.product.selected_out_of_stock", lang, product.getLocalizedName(lang)));
+            sendCartReminder(tenant, customer, session);
+            sendCategoryList(tenant, customer, session.withStep(ConversationStep.CATEGORY_SELECTION));
+            return;
+        }
+
+        WhatsAppSession updated =
+                session.withSelectedProduct(product.getId()).withStep(ConversationStep.QUANTITY_ENTRY);
+        sessionStore.save(tenant.getId(), customer.getPhoneNumber(), updated);
+        messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
+                messages.get("bot.quantity.prompt", lang, product.getUnit(), product.getLocalizedName(lang)));
     }
 
     private void handleQuantityEntry(Tenant tenant, Customer customer, WhatsAppSession session, String textBody) {
