@@ -27,8 +27,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -41,6 +44,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class OrderService {
 
+    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String ORDER_NUMBER_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -75,6 +79,8 @@ public class OrderService {
         if (StringUtils.hasText(request.idempotencyKey())) {
             var existing = orderRepository.findByIdempotencyKey(request.idempotencyKey());
             if (existing.isPresent()) {
+                log.debug("Order creation replayed for idempotency key {}; returning existing order {}",
+                        request.idempotencyKey(), existing.get().getOrderNumber());
                 return orderMapper.toResponse(existing.get());
             }
         }
@@ -118,7 +124,10 @@ public class OrderService {
 
         recordStatusHistory(order, null, OrderStatus.NEW, "Order created");
 
-        for (OrderItem item : order.getItems()) {
+        // Deduct in ascending product-id order: adjustStock takes a row lock per inventory row,
+        // and two concurrent multi-line orders locking the same products in different sequences
+        // would deadlock. A single global ordering makes one simply wait for the other.
+        for (OrderItem item : itemsInLockOrder(order)) {
             AdjustStockRequest deduction = new AdjustStockRequest(
                     InventoryTransactionType.SALE, item.getQuantity().negate(), "ORDER", order.getId(),
                     "Order " + order.getOrderNumber());
@@ -130,6 +139,10 @@ public class OrderService {
                         "totalAmount", order.getTotalAmount()),
                 AuditChannel.valueOf(order.getChannel().name()));
 
+        log.info("Order {} created via {} for customer {}: {} item(s), total {} {}", order.getOrderNumber(),
+                order.getChannel(), customer.getId(), order.getItems().size(), order.getTotalAmount(),
+                order.getCurrencyCode());
+
         return orderMapper.toResponse(order);
     }
 
@@ -140,15 +153,20 @@ public class OrderService {
         OrderStatus to = request.status();
 
         if (!from.canTransitionTo(to)) {
+            log.warn("Rejected invalid status transition for order {}: {} -> {}", order.getOrderNumber(), from, to);
             throw new BusinessRuleViolationException("Cannot transition order from " + from + " to " + to);
         }
 
         order.setStatus(to);
         orderRepository.save(order);
         recordStatusHistory(order, from, to, request.notes());
+        log.info("Order {} status changed {} -> {}", order.getOrderNumber(), from, to);
 
         if (to == OrderStatus.CANCELLED) {
-            for (OrderItem item : order.getItems()) {
+            log.info("Order {} cancelled; releasing stock for {} item(s)", order.getOrderNumber(),
+                    order.getItems().size());
+            // Same ascending product-id lock order as the deduction loop in createOrder.
+            for (OrderItem item : itemsInLockOrder(order)) {
                 AdjustStockRequest release = new AdjustStockRequest(
                         InventoryTransactionType.RETURN, item.getQuantity(), "ORDER", order.getId(),
                         "Order " + order.getOrderNumber() + " cancelled");
@@ -203,6 +221,12 @@ public class OrderService {
         getOrThrow(orderId);
         return orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtDesc(orderId, pageable)
                 .map(orderMapper::toResponse);
+    }
+
+    private List<OrderItem> itemsInLockOrder(OrderHeader order) {
+        return order.getItems().stream()
+                .sorted(Comparator.comparing(item -> item.getProduct().getId()))
+                .toList();
     }
 
     private void recordStatusHistory(OrderHeader order, OrderStatus from, OrderStatus to, String notes) {

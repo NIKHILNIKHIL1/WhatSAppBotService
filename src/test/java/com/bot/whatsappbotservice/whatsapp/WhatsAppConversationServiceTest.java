@@ -408,11 +408,27 @@ class WhatsAppConversationServiceTest {
                 anyString());
     }
 
+    /** Stubs the product/inventory reads behind checkout revalidation so the cart line passes:
+     * product active at the carted price, plenty of stock. */
+    private void stubCleanRevalidation(Long productId, String name, String price, String availableQuantity) {
+        Product product = new Product();
+        product.setId(productId);
+        product.setActive(true);
+        product.setName(name);
+        product.setUnit("ltr");
+        product.setPrice(new BigDecimal(price));
+        when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(new BigDecimal(availableQuantity));
+        when(inventoryRepository.findByProductId(productId)).thenReturn(Optional.of(inventory));
+    }
+
     @Test
     void confirmingOrderCreatesOrderNotifiesCustomerAndVendorThenClearsSession() {
         CartLine line = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
         WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CHECKOUT_CONFIRM).withCartLineAdded(line);
         when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        stubCleanRevalidation(10L, "Milk", "55.00", "20");
         tenant.setVendorNotificationPhoneNumber("+19998887777");
         OrderResponse orderResponse = new OrderResponse(
                 100L, "ORD-2026-ABC123", customer.getId(), customer.getFullName(), customer.getPhoneNumber(),
@@ -441,31 +457,102 @@ class WhatsAppConversationServiceTest {
     }
 
     @Test
-    void insufficientStockDuringCheckoutRestartsFlowInsteadOfCrashing() {
+    void checkoutFailureAfterRevalidationKeepsCartAndReturnsToCartReview() {
+        // Revalidation passes but createOrder still fails — the residual race where a concurrent
+        // order consumes the stock between the check and the row-locked deduction. The cart must
+        // survive, the customer lands back on cart review, and the internal exception message
+        // (product ids, English-only) must never reach them.
         CartLine line = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
         WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CHECKOUT_CONFIRM).withCartLineAdded(line);
         when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        stubCleanRevalidation(10L, "Milk", "55.00", "20");
         when(orderService.createOrder(any(CreateOrderRequest.class)))
-                .thenThrow(new BusinessRuleViolationException("Insufficient stock"));
-        when(categoryRepository.findByActiveTrue(any())).thenReturn(new PageImpl<>(List.of()));
+                .thenThrow(new BusinessRuleViolationException("Insufficient stock for product 10: have 1, requested change -3"));
 
         conversationService.handleMessage(tenant, customer, "wamid-7", null, "CONFIRM");
 
         ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
         verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
-        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CATEGORY_SELECTION);
-        assertThat(captor.getValue().cart()).isEmpty();
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CART_REVIEW);
+        assertThat(captor.getValue().cart()).containsExactly(line);
         verify(sessionStore, never()).clear(any(), any());
 
-        // Exact-content check (not just anyString()): "bot.order.failed" is the one message-bundle
-        // key that combines a {0} placeholder with literal apostrophes ("couldn't"/"Let's") in the
-        // same string, which MessageFormat would otherwise silently mangle if they weren't escaped
-        // as '' in messages_en.properties. This confirms the real ResourceBundleMessageSource
-        // renders it correctly end-to-end, not just that some string was sent.
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("Sorry, we couldn't place your order right now. Your cart is saved — please try again."));
+        // Back on the cart summary so the customer can retry, remove or add — not dumped to zero.
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE), anyString(), anyList(),
+                anyString());
+    }
+
+    @Test
+    void priceChangeAtConfirmRepricesCartAndAsksToReconfirmWithoutOrdering() {
+        // The customer added Milk at 55.00, the vendor repriced it to 60.00 mid-session. No order
+        // may be booked until the customer has seen and confirmed the amount that will actually be
+        // charged — the cart is repriced and the confirmation re-sent with the fresh total.
+        CartLine line = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CHECKOUT_CONFIRM).withCartLineAdded(line);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        stubCleanRevalidation(10L, "Milk", "60.00", "20");
+
+        conversationService.handleMessage(tenant, customer, "wamid-8", null, "CONFIRM");
+
+        verify(orderService, never()).createOrder(any());
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CHECKOUT_CONFIRM);
+        assertThat(captor.getValue().cart()).hasSize(1);
+        assertThat(captor.getValue().cart().get(0).unitPrice()).isEqualByComparingTo("60.00");
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("⚠️ Some prices have changed since you added these items. Your cart has been updated with the "
+                        + "latest prices — please review and confirm again."));
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE),
+                eq("Order Summary:\n- Milk x 3 = 180.00\n\nTotal: 180.00 INR\nConfirm your order?"),
+                anyList(), anyString());
+    }
+
+    @Test
+    void insufficientStockDetectedAtConfirmKeepsCartAndReturnsToReview() {
+        CartLine line = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CHECKOUT_CONFIRM).withCartLineAdded(line);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        stubCleanRevalidation(10L, "Milk", "55.00", "1");
+
+        conversationService.handleMessage(tenant, customer, "wamid-9", null, "CONFIRM");
+
+        verify(orderService, never()).createOrder(any());
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CART_REVIEW);
+        // The line is kept (not silently dropped or capped) so the customer decides what to do.
+        assertThat(captor.getValue().cart()).containsExactly(line);
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("⚠️ Only 1 ltr of Milk in stock right now, but your cart has 3. "
+                        + "Please remove it and add a smaller quantity."));
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE), anyString(), anyList(),
+                anyString());
+    }
+
+    @Test
+    void unavailableProductAtConfirmIsRemovedAndEmptyCartReturnsToCategories() {
+        CartLine line = new CartLine(10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3));
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CHECKOUT_CONFIRM).withCartLineAdded(line);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(productRepository.findById(10L)).thenReturn(Optional.empty());
+        when(categoryRepository.findByActiveTrue(any())).thenReturn(new PageImpl<>(List.of()));
+
+        conversationService.handleMessage(tenant, customer, "wamid-10", null, "CONFIRM");
+
+        verify(orderService, never()).createOrder(any());
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CATEGORY_SELECTION);
+        assertThat(captor.getValue().cart()).isEmpty();
         ArgumentCaptor<String> textCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messagingService, times(2)).sendText(eq(tenant), eq(customer), eq(PHONE), textCaptor.capture());
+        verify(messagingService, times(3)).sendText(eq(tenant), eq(customer), eq(PHONE), textCaptor.capture());
         assertThat(textCaptor.getAllValues().get(0))
-                .isEqualTo("Sorry, we couldn't place your order: Insufficient stock. Let's start again.");
+                .isEqualTo("⚠️ Milk is no longer available and was removed from your cart.");
+        assertThat(textCaptor.getAllValues().get(1))
+                .isEqualTo("Your cart is now empty. Let's find something for you!");
     }
 
     private OrderResponse sampleOrder(String orderNumber, OrderStatus status, BigDecimal total, Instant createdAt) {

@@ -42,6 +42,13 @@ public record WhatsAppSession(
         return new WhatsAppSession(step, languageCode, null, null, new ArrayList<>(), lastOptionIds);
     }
 
+    /** Wholesale cart replacement — used when checkout revalidation rewrites lines (stale price
+     * refreshed, unavailable product dropped) rather than adding/removing a single one. */
+    public WhatsAppSession withCart(List<CartLine> newCart) {
+        return new WhatsAppSession(step, languageCode, categoryId, selectedProductId, new ArrayList<>(newCart),
+                lastOptionIds);
+    }
+
     /** {@code index} must be a valid index into {@link #cart()} — callers resolve and bounds-check
      * it against the cart size before calling this (see how {@code lastOptionIds} is used to do so
      * for every other reply-driven action in the flow). */

@@ -22,6 +22,7 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class InventoryServiceTest {
 
@@ -49,7 +50,8 @@ class InventoryServiceTest {
 
     @Test
     void adjustStockAppliesDeltaAndWritesLedgerEntry() {
-        when(inventoryRepository.findByProductId(PRODUCT_ID)).thenReturn(Optional.of(inventory(BigDecimal.TEN)));
+        when(inventoryRepository.findByProductIdForUpdate(PRODUCT_ID))
+                .thenReturn(Optional.of(inventory(BigDecimal.TEN)));
         when(inventoryRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
         when(inventoryTransactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -64,7 +66,8 @@ class InventoryServiceTest {
 
     @Test
     void adjustStockRejectsWhenResultingQuantityWouldBeNegative() {
-        when(inventoryRepository.findByProductId(PRODUCT_ID)).thenReturn(Optional.of(inventory(BigDecimal.valueOf(2))));
+        when(inventoryRepository.findByProductIdForUpdate(PRODUCT_ID))
+                .thenReturn(Optional.of(inventory(BigDecimal.valueOf(2))));
 
         AdjustStockRequest request = new AdjustStockRequest(
                 InventoryTransactionType.SALE, BigDecimal.valueOf(-5), "ORDER", 100L, null);
@@ -79,7 +82,7 @@ class InventoryServiceTest {
     @Test
     void adjustStockRetriesOnOptimisticLockConflictThenSucceeds() {
         // Each re-read reflects the true committed quantity (10) as if the failed attempt rolled back.
-        when(inventoryRepository.findByProductId(PRODUCT_ID))
+        when(inventoryRepository.findByProductIdForUpdate(PRODUCT_ID))
                 .thenAnswer(inv -> Optional.of(inventory(BigDecimal.TEN)));
         AtomicInteger saveCalls = new AtomicInteger();
         when(inventoryRepository.saveAndFlush(any())).thenAnswer(inv -> {
@@ -97,6 +100,30 @@ class InventoryServiceTest {
 
         assertThat(response.quantityAfter()).isEqualByComparingTo("7");
         assertThat(saveCalls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void adjustStockJoinsAmbientTransactionInsteadOfOpeningItsOwn() {
+        // When called inside an existing transaction (order creation/cancellation), the adjustment
+        // must join it — never run through the TransactionTemplate — so stock moves atomically
+        // with the order and a failure rolls the whole order back.
+        when(inventoryRepository.findByProductIdForUpdate(PRODUCT_ID))
+                .thenReturn(Optional.of(inventory(BigDecimal.TEN)));
+        when(inventoryRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(inventoryTransactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AdjustStockRequest request = new AdjustStockRequest(
+                InventoryTransactionType.SALE, BigDecimal.valueOf(-3), "ORDER", 100L, null);
+
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            InventoryTransactionResponse response = inventoryService.adjustStock(PRODUCT_ID, request);
+            assertThat(response.quantityAfter()).isEqualByComparingTo("7");
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+
+        verify(transactionManager, never()).getTransaction(any());
     }
 
     private Inventory inventory(BigDecimal quantityOnHand) {

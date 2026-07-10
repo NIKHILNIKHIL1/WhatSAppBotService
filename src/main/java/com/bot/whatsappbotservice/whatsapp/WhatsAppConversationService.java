@@ -259,6 +259,8 @@ public class WhatsAppConversationService {
     private void handleProductCodeEntry(Tenant tenant, Customer customer, WhatsAppSession session, Product product) {
         String lang = customerLanguage(tenant, session);
         if (isOutOfStock(product.getId())) {
+            log.debug("Product code {} (product {}) resolved but out of stock for tenant {}", product.getSku(),
+                    product.getId(), tenant.getId());
             messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
                     messages.get("bot.product.selected_out_of_stock", lang, product.getLocalizedName(lang)));
             sendCartReminder(tenant, customer, session);
@@ -266,6 +268,8 @@ public class WhatsAppConversationService {
             return;
         }
 
+        log.debug("Product code {} resolved to product {} for tenant {}; skipping to quantity entry",
+                product.getSku(), product.getId(), tenant.getId());
         WhatsAppSession updated =
                 session.withSelectedProduct(product.getId()).withStep(ConversationStep.QUANTITY_ENTRY);
         sessionStore.save(tenant.getId(), customer.getPhoneNumber(), updated);
@@ -285,9 +289,12 @@ public class WhatsAppConversationService {
         Product product = productRepository.findById(session.selectedProductId()).filter(Product::isActive)
                 .orElse(null);
         if (product == null) {
+            // Only the in-flight selection is lost — anything already in the cart stays, same as
+            // every other dead-end detour in this class.
             messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
                     messages.get("bot.product.unavailable", lang));
-            restartAtCategorySelection(tenant, customer, session);
+            sendCartReminder(tenant, customer, session);
+            sendCategoryList(tenant, customer, session.withStep(ConversationStep.CATEGORY_SELECTION));
             return;
         }
 
@@ -448,7 +455,41 @@ public class WhatsAppConversationService {
             return;
         }
 
-        List<OrderItemRequest> items = session.cart().stream()
+        // Revalidate the cart against the catalog before creating the order. This runs in the same
+        // transaction (and persistence context) as createOrder below, so a product/price this check
+        // sees is byte-for-byte what createOrder would charge — the customer can never confirm one
+        // total and be billed another. Any problem keeps the cart intact and routes back to a step
+        // where the customer can act on it, instead of the old behavior of emptying the cart.
+        CartCheck check = checkCartAgainstCatalog(session.cart(), lang);
+        if (check.blocked() || check.priceChanged()) {
+            if (!check.notices().isEmpty()) {
+                messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
+                        String.join("\n", check.notices()));
+            }
+            if (check.priceChanged()) {
+                messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
+                        messages.get("bot.checkout.prices_changed", lang));
+            }
+            WhatsAppSession updated = session.withCart(check.cart());
+            if (updated.cart().isEmpty()) {
+                messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
+                        messages.get("bot.cart.empty_after_removal", lang));
+                sendCategoryList(tenant, customer, updated.withStep(ConversationStep.CATEGORY_SELECTION));
+                return;
+            }
+            if (check.blocked()) {
+                // The cart changed under them (line removed) or a line can't be fulfilled — back to
+                // cart review so they can remove/adjust before trying to confirm again.
+                sendCartSummary(tenant, customer, updated.withStep(ConversationStep.CART_REVIEW));
+            } else {
+                // Only prices moved: re-show the confirmation with the fresh total so the amount
+                // the customer confirms is the amount the order will book.
+                sendCheckoutConfirmation(tenant, customer, updated);
+            }
+            return;
+        }
+
+        List<OrderItemRequest> items = check.cart().stream()
                 .map(line -> new OrderItemRequest(line.productId(), line.quantity()))
                 .toList();
         CreateOrderRequest orderRequest = new CreateOrderRequest(
@@ -466,10 +507,58 @@ public class WhatsAppConversationService {
                         order.orderNumber(), tenant.getId(), e);
             }
         } catch (BusinessRuleViolationException | ResourceNotFoundException e) {
+            // Backstop for the residual race: stock consumed by a concurrent order between the
+            // revalidation above and the row-locked deduction inside createOrder. The exception
+            // message is internal (product ids, English) so it is logged, never sent; the cart is
+            // kept so the customer can retry or adjust rather than starting from scratch.
+            log.warn("WhatsApp checkout failed for customer {} (tenant {}): {}", customer.getId(), tenant.getId(),
+                    e.getMessage());
             messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
-                    messages.get("bot.order.failed", lang, e.getMessage()));
-            restartAtCategorySelection(tenant, customer, session);
+                    messages.get("bot.order.failed", lang));
+            sendCartSummary(tenant, customer, session.withStep(ConversationStep.CART_REVIEW));
         }
+    }
+
+    /** Outcome of re-checking the cart against the live catalog at confirm time. {@code blocked}
+     * means the cart as confirmed can't be ordered (a line was dropped or exceeds stock) and the
+     * customer must review it; {@code priceChanged} alone means the cart was silently repriced and
+     * only needs re-confirmation. {@code cart} is the rewritten cart to persist either way. */
+    private record CartCheck(List<CartLine> cart, List<String> notices, boolean blocked, boolean priceChanged) {
+    }
+
+    private CartCheck checkCartAgainstCatalog(List<CartLine> cart, String lang) {
+        List<CartLine> refreshed = new java.util.ArrayList<>();
+        List<String> notices = new java.util.ArrayList<>();
+        boolean blocked = false;
+        boolean priceChanged = false;
+        for (CartLine line : cart) {
+            Product product = productRepository.findById(line.productId()).filter(Product::isActive).orElse(null);
+            if (product == null) {
+                notices.add(messages.get("bot.checkout.line_unavailable", lang, line.productName()));
+                blocked = true;
+                continue;
+            }
+            BigDecimal available = inventoryRepository.findByProductId(product.getId())
+                    .map(Inventory::getQuantityOnHand)
+                    .orElse(BigDecimal.ZERO);
+            if (available.compareTo(line.quantity()) < 0) {
+                notices.add(messages.get("bot.checkout.line_insufficient", lang,
+                        product.getLocalizedName(lang), String.valueOf(available), product.getUnit(),
+                        String.valueOf(line.quantity())));
+                blocked = true;
+                // Kept (not dropped) so the customer sees it in the removal list and can decide.
+                refreshed.add(line);
+                continue;
+            }
+            if (product.getPrice().compareTo(line.unitPrice()) != 0) {
+                priceChanged = true;
+                refreshed.add(new CartLine(product.getId(), product.getLocalizedName(lang), product.getPrice(),
+                        line.quantity()));
+                continue;
+            }
+            refreshed.add(line);
+        }
+        return new CartCheck(refreshed, notices, blocked, priceChanged);
     }
 
     /** Always the tenant's default (vendor's) language — never the customer's chosen one. */
@@ -487,6 +576,8 @@ public class WhatsAppConversationService {
                         String.valueOf(order.totalAmount()), order.currencyCode()));
     }
 
+    /** Deliberately empties the cart — only reached from an explicit customer CANCEL at checkout,
+     * never from a failure path (failures keep the cart and route back to review instead). */
     private void restartAtCategorySelection(Tenant tenant, Customer customer, WhatsAppSession session) {
         WhatsAppSession reset = session.withStep(ConversationStep.CATEGORY_SELECTION).withEmptyCart();
         sendCategoryList(tenant, customer, reset);

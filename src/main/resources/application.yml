@@ -53,8 +53,15 @@ app:
     meta:
       graph-api-base-url: ${WHATSAPP_GRAPH_API_BASE_URL:https://graph.facebook.com/v20.0}
       verify-token: ${WHATSAPP_VERIFY_TOKEN:dairy_saas_verify_token}
+      # Meta app secret used to verify X-Hub-Signature-256 on inbound webhooks.
+      # Empty disables verification (local dev only) — REQUIRED in production.
+      app-secret: ${WHATSAPP_APP_SECRET:}
   twilio:
     api-base-url: ${TWILIO_API_BASE_URL:https://api.twilio.com/2010-04-01}
+    # The exact public URL configured as the webhook in the Twilio console (needed to validate
+    # X-Twilio-Signature behind proxies/tunnels). Empty falls back to reconstructing it from the
+    # incoming request, which only works when the app is reached directly over HTTPS.
+    webhook-url: ${TWILIO_WEBHOOK_URL:}
   rate-limit:
     enabled: ${RATE_LIMIT_ENABLED:false}
     auth:
