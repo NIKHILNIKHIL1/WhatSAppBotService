@@ -54,6 +54,14 @@ public class RedisWhatsAppSessionStore implements WhatsAppSessionStore {
         redisTemplate.delete(key(tenantId, phoneNumber));
     }
 
+    @Override
+    public boolean tryClaimRejectionNotice(Long tenantId, String phoneNumber, Duration ttl) {
+        // SET NX EX — atomic claim; the key simply expiring re-opens the window.
+        Boolean claimed = redisTemplate.opsForValue()
+                .setIfAbsent("wa:rejection-notice:" + tenantId + ":" + phoneNumber, "1", ttl);
+        return Boolean.TRUE.equals(claimed);
+    }
+
     private String key(Long tenantId, String phoneNumber) {
         return "wa:session:" + tenantId + ":" + phoneNumber;
     }

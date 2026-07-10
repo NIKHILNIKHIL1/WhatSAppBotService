@@ -3,12 +3,14 @@ package com.bot.whatsappbotservice.customer;
 import com.bot.whatsappbotservice.audit.AuditAction;
 import com.bot.whatsappbotservice.audit.AuditChannel;
 import com.bot.whatsappbotservice.audit.AuditService;
+import com.bot.whatsappbotservice.common.PhoneNumbers;
 import com.bot.whatsappbotservice.common.exception.DuplicateResourceException;
 import com.bot.whatsappbotservice.common.exception.ResourceNotFoundException;
 import com.bot.whatsappbotservice.customer.dto.CreateCustomerRequest;
 import com.bot.whatsappbotservice.customer.dto.CustomerResponse;
 import com.bot.whatsappbotservice.customer.dto.UpdateCustomerRequest;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -38,12 +40,13 @@ public class CustomerService {
 
     @Transactional
     public CustomerResponse create(CreateCustomerRequest request) {
-        if (customerRepository.existsByPhoneNumber(request.phoneNumber())) {
+        String phoneNumber = PhoneNumbers.toE164(request.phoneNumber());
+        if (customerRepository.existsByPhoneNumber(phoneNumber)) {
             throw new DuplicateResourceException(
-                    "A customer with phone number '" + request.phoneNumber() + "' already exists");
+                    "A customer with phone number '" + phoneNumber + "' already exists");
         }
         Customer customer = new Customer();
-        customer.setPhoneNumber(request.phoneNumber());
+        customer.setPhoneNumber(phoneNumber);
         customer.setFullName(request.fullName());
         customer.setPreferredLanguageCode(defaultLanguage(request.preferredLanguageCode()));
         return customerMapper.toResponse(customerRepository.save(customer));
@@ -101,9 +104,20 @@ public class CustomerService {
      * currently missing — never overwrites a name a vendor has since edited.
      */
     public Customer findOrCreateByPhoneNumber(String phoneNumber, String preferredLanguageCode, String displayName) {
-        return customerRepository.findByPhoneNumber(phoneNumber)
+        String normalized = PhoneNumbers.toE164(phoneNumber);
+        return customerRepository.findByPhoneNumber(normalized)
                 .map(customer -> backfillNameIfMissing(customer, displayName))
-                .orElseGet(() -> createNewIsolated(phoneNumber, preferredLanguageCode, displayName));
+                .orElseGet(() -> createNewIsolated(normalized, preferredLanguageCode, displayName));
+    }
+
+    /**
+     * Registration-gated lookup for the WhatsApp inbound flow: finds the customer the vendor
+     * registered under this (normalized) number without ever creating one. The WhatsApp profile
+     * name still backfills a missing stored name, same as the auto-register path.
+     */
+    public Optional<Customer> findRegisteredByPhoneNumber(String phoneNumber, String displayName) {
+        return customerRepository.findByPhoneNumber(PhoneNumbers.toE164(phoneNumber))
+                .map(customer -> backfillNameIfMissing(customer, displayName));
     }
 
     private Customer backfillNameIfMissing(Customer customer, String displayName) {

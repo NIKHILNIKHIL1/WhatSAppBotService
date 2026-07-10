@@ -3,6 +3,8 @@ package com.bot.whatsappbotservice.ui;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.bot.whatsappbotservice.common.exception.DuplicateResourceException;
@@ -90,10 +92,24 @@ class CustomerUiControllerTest {
         MvcTestResult result = mvc.post().uri("/ui/customers/new")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("phoneNumber", "+14155550100")
+                .param("fullName", "Jane Doe")
                 .exchange();
 
         assertThat(result).hasStatusOk();
         assertThat(result.getResponse().getContentAsString()).contains("already exists");
+    }
+
+    @Test
+    void missingNameReRendersFormWithError() throws Exception {
+        // Registration means name + number — a nameless customer can't be registered.
+        MvcTestResult result = mvc.post().uri("/ui/customers/new")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("phoneNumber", "+14155550100")
+                .exchange();
+
+        assertThat(result).hasStatusOk();
+        assertThat(result.getResponse().getContentAsString()).contains("field-error");
+        verify(customerService, never()).create(ArgumentMatchers.any());
     }
 
     @Test

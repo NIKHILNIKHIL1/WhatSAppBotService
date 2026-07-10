@@ -26,6 +26,7 @@ public class InMemoryWhatsAppSessionStore implements WhatsAppSessionStore {
     }
 
     private final Map<String, Entry> sessions = new ConcurrentHashMap<>();
+    private final Map<String, Instant> rejectionNotices = new ConcurrentHashMap<>();
 
     public InMemoryWhatsAppSessionStore() {
         log.warn("app.redis.enabled=false — using in-memory WhatsApp session store (dev/testing only, "
@@ -53,6 +54,20 @@ public class InMemoryWhatsAppSessionStore implements WhatsAppSessionStore {
     @Override
     public void clear(Long tenantId, String phoneNumber) {
         sessions.remove(key(tenantId, phoneNumber));
+    }
+
+    @Override
+    public boolean tryClaimRejectionNotice(Long tenantId, String phoneNumber, Duration ttl) {
+        Instant now = Instant.now();
+        boolean[] claimed = new boolean[1];
+        rejectionNotices.compute(key(tenantId, phoneNumber), (key, expiresAt) -> {
+            if (expiresAt == null || now.isAfter(expiresAt)) {
+                claimed[0] = true;
+                return now.plus(ttl);
+            }
+            return expiresAt;
+        });
+        return claimed[0];
     }
 
     private String key(Long tenantId, String phoneNumber) {

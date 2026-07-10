@@ -59,6 +59,12 @@ public class Tenant extends BaseEntity {
     @Column(name = "default_language_code", nullable = false)
     private String defaultLanguageCode = "en";
 
+    /** When true (the default), only vendor-registered, non-blocked customers can order over
+     * WhatsApp; unknown numbers get a one-time "please register" notice and are otherwise
+     * ignored. When false, first contact auto-registers the customer (the original behavior). */
+    @Column(name = "require_customer_registration", nullable = false)
+    private boolean requireCustomerRegistration = true;
+
     /**
      * EAGER (unlike everything else in this codebase, which is LAZY by default): this entity is
      * routinely loaded by {@code WhatsAppWebhookService} in a short-lived, non-{@code @Transactional}

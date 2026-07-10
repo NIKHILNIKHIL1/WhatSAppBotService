@@ -1,10 +1,11 @@
 package com.bot.whatsappbotservice.whatsapp.twilio;
 
+import com.bot.whatsappbotservice.common.PhoneNumbers;
 import com.bot.whatsappbotservice.common.TenantContext;
 import com.bot.whatsappbotservice.customer.Customer;
-import com.bot.whatsappbotservice.customer.CustomerService;
 import com.bot.whatsappbotservice.tenant.Tenant;
 import com.bot.whatsappbotservice.tenant.TenantRepository;
+import com.bot.whatsappbotservice.whatsapp.CustomerRegistrationGate;
 import com.bot.whatsappbotservice.whatsapp.MessageDirection;
 import com.bot.whatsappbotservice.whatsapp.MessageStatus;
 import com.bot.whatsappbotservice.whatsapp.WhatsAppConversationService;
@@ -32,16 +33,16 @@ public class TwilioWebhookService {
     private static final String WHATSAPP_PREFIX = "whatsapp:";
 
     private final TenantRepository tenantRepository;
-    private final CustomerService customerService;
+    private final CustomerRegistrationGate registrationGate;
     private final WhatsAppMessageRepository whatsAppMessageRepository;
     private final WhatsAppConversationService conversationService;
     private final ObjectMapper objectMapper;
 
-    public TwilioWebhookService(TenantRepository tenantRepository, CustomerService customerService,
+    public TwilioWebhookService(TenantRepository tenantRepository, CustomerRegistrationGate registrationGate,
                                  WhatsAppMessageRepository whatsAppMessageRepository,
                                  WhatsAppConversationService conversationService, ObjectMapper objectMapper) {
         this.tenantRepository = tenantRepository;
-        this.customerService = customerService;
+        this.registrationGate = registrationGate;
         this.whatsAppMessageRepository = whatsAppMessageRepository;
         this.conversationService = conversationService;
         this.objectMapper = objectMapper;
@@ -78,15 +79,18 @@ public class TwilioWebhookService {
             return;
         }
 
-        Customer customer = customerService.findOrCreateByPhoneNumber(fromNumber, null, profileName);
+        String phoneNumber = PhoneNumbers.toE164(fromNumber);
+        Customer customer = registrationGate.resolveTransactingCustomer(tenant, phoneNumber, profileName)
+                .orElse(null);
 
         // Record the message as seen BEFORE running the conversation flow, mirroring the Meta
         // webhook: a Twilio retry must not replay this message and risk a duplicate order.
+        // Refused contacts are logged too (with no customer) — audit trail + notice-retry guard.
         WhatsAppMessage inboundLog = new WhatsAppMessage();
         inboundLog.setCustomer(customer);
         inboundLog.setWaMessageId(messageSid);
         inboundLog.setDirection(MessageDirection.INBOUND);
-        inboundLog.setFromPhoneNumber(fromNumber);
+        inboundLog.setFromPhoneNumber(phoneNumber != null ? phoneNumber : fromNumber);
         inboundLog.setToPhoneNumber(toNumber);
         inboundLog.setMessageType("text");
         inboundLog.setPayload(toJson(Map.of("body", body != null ? body : "", "profileName",
@@ -94,6 +98,9 @@ public class TwilioWebhookService {
         inboundLog.setStatus(MessageStatus.RECEIVED);
         whatsAppMessageRepository.save(inboundLog);
 
+        if (customer == null) {
+            return;
+        }
         conversationService.handleMessage(tenant, customer, messageSid, body, null);
     }
 

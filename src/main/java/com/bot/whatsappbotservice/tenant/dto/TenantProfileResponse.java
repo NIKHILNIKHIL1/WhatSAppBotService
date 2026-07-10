@@ -17,6 +17,7 @@ public record TenantProfileResponse(
         String messagingProvider,
         String twilioWhatsAppNumber,
         boolean twilioConfigured,
-        List<String> supportedLanguageCodes
+        List<String> supportedLanguageCodes,
+        boolean requireCustomerRegistration
 ) {
 }

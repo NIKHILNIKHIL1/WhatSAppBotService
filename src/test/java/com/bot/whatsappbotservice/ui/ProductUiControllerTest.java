@@ -53,7 +53,7 @@ class ProductUiControllerTest {
     void setUp() {
         when(tenantService.getCurrent()).thenReturn(new TenantProfileResponse(
                 1L, "Tenant", "tenant", null, null, false, null, "en", "INR", "UTC", "ACTIVE", "META", null, false,
-                List.of("en")));
+                List.of("en"), true));
     }
 
     @Test

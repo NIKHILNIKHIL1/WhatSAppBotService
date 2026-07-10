@@ -15,4 +15,12 @@ public interface WhatsAppSessionStore {
     void save(Long tenantId, String phoneNumber, WhatsAppSession session);
 
     void clear(Long tenantId, String phoneNumber);
+
+    /**
+     * Claims the right to send an unregistered-contact rejection notice to this number: returns
+     * {@code true} exactly once per {@code ttl} window (first caller wins), {@code false} while a
+     * previous claim is still live. Keeps a stranger (or bot loop) messaging the number from
+     * costing the vendor one paid outbound reply per inbound message.
+     */
+    boolean tryClaimRejectionNotice(Long tenantId, String phoneNumber, java.time.Duration ttl);
 }

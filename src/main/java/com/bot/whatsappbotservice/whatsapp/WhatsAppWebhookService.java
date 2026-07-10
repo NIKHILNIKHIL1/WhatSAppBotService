@@ -1,8 +1,8 @@
 package com.bot.whatsappbotservice.whatsapp;
 
+import com.bot.whatsappbotservice.common.PhoneNumbers;
 import com.bot.whatsappbotservice.common.TenantContext;
 import com.bot.whatsappbotservice.customer.Customer;
-import com.bot.whatsappbotservice.customer.CustomerService;
 import com.bot.whatsappbotservice.tenant.Tenant;
 import com.bot.whatsappbotservice.tenant.TenantRepository;
 import com.bot.whatsappbotservice.whatsapp.dto.WhatsAppWebhookPayload;
@@ -30,16 +30,16 @@ public class WhatsAppWebhookService {
     private static final Logger logger = LoggerFactory.getLogger(WhatsAppWebhookService.class);
 
     private final TenantRepository tenantRepository;
-    private final CustomerService customerService;
+    private final CustomerRegistrationGate registrationGate;
     private final WhatsAppMessageRepository whatsAppMessageRepository;
     private final WhatsAppConversationService conversationService;
     private final ObjectMapper objectMapper;
 
-    public WhatsAppWebhookService(TenantRepository tenantRepository, CustomerService customerService,
+    public WhatsAppWebhookService(TenantRepository tenantRepository, CustomerRegistrationGate registrationGate,
                                    WhatsAppMessageRepository whatsAppMessageRepository,
                                    WhatsAppConversationService conversationService, ObjectMapper objectMapper) {
         this.tenantRepository = tenantRepository;
-        this.customerService = customerService;
+        this.registrationGate = registrationGate;
         this.whatsAppMessageRepository = whatsAppMessageRepository;
         this.conversationService = conversationService;
         this.objectMapper = objectMapper;
@@ -103,22 +103,31 @@ public class WhatsAppWebhookService {
             return;
         }
 
-        Customer customer = customerService.findOrCreateByPhoneNumber(message.from(), null, contactName);
+        // Meta sends the wa_id without a '+'; everything downstream (customer identity, session
+        // keys, outbound sends) works on the canonical +E.164 form.
+        String phoneNumber = PhoneNumbers.toE164(message.from());
+        Customer customer = registrationGate.resolveTransactingCustomer(tenant, phoneNumber, contactName)
+                .orElse(null);
 
         // Record the message as seen BEFORE running the conversation flow: if flow processing
         // throws partway through, a Meta webhook retry must not replay this message and risk a
         // duplicate order — better to drop one conversational turn than double-charge a customer.
+        // Refused contacts are logged too (with no customer), so the vendor has an audit trail of
+        // who tried to order and a retry can never re-send the rejection notice.
         WhatsAppMessage inboundLog = new WhatsAppMessage();
         inboundLog.setCustomer(customer);
         inboundLog.setWaMessageId(message.id());
         inboundLog.setDirection(MessageDirection.INBOUND);
-        inboundLog.setFromPhoneNumber(message.from());
+        inboundLog.setFromPhoneNumber(phoneNumber != null ? phoneNumber : message.from());
         inboundLog.setToPhoneNumber(tenant.getWhatsappPhoneNumberId());
         inboundLog.setMessageType(message.type() != null ? message.type() : "unknown");
         inboundLog.setPayload(toJson(message));
         inboundLog.setStatus(MessageStatus.RECEIVED);
         whatsAppMessageRepository.save(inboundLog);
 
+        if (customer == null) {
+            return;
+        }
         conversationService.handleMessage(tenant, customer, message.id(), message.textBody(), message.replyId());
     }
 

@@ -13,12 +13,23 @@ import com.bot.whatsappbotservice.tenant.dto.UpdateMessagingProviderRequest;
 import com.bot.whatsappbotservice.tenant.dto.UpdateSupportedLanguagesRequest;
 import com.bot.whatsappbotservice.tenant.dto.UpdateTwilioConfigRequest;
 import com.bot.whatsappbotservice.tenant.dto.UpdateWhatsAppConfigRequest;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.data.domain.Sort;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+/**
+ * Tenant settings are platform-managed: the Super Admin (who operates the SaaS and owns the
+ * Meta/Twilio integrations) configures each vendor's messaging credentials, languages and ordering
+ * policy. Vendors can read their own profile ({@link #getCurrent()} feeds the vendor UI's language
+ * pickers and dashboard) but every mutation is {@code SUPER_ADMIN}-only, enforced here at the
+ * service layer so no future controller can accidentally re-expose it. Mutations audit under the
+ * <em>target</em> tenant with the admin as {@code performedBy}.
+ */
 @Service
 public class TenantService {
 
@@ -35,9 +46,24 @@ public class TenantService {
         return toProfileResponse(getCurrentTenantOrThrow());
     }
 
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @Transactional(readOnly = true)
+    public List<TenantProfileResponse> listAll() {
+        return tenantRepository.findAll(Sort.by("id")).stream()
+                .map(this::toProfileResponse)
+                .toList();
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @Transactional(readOnly = true)
+    public TenantProfileResponse getById(Long tenantId) {
+        return toProfileResponse(getTenantOrThrow(tenantId));
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     @Transactional
-    public TenantProfileResponse updateWhatsAppConfig(UpdateWhatsAppConfigRequest request) {
-        Tenant tenant = getCurrentTenantOrThrow();
+    public TenantProfileResponse updateWhatsAppConfig(Long tenantId, UpdateWhatsAppConfigRequest request) {
+        Tenant tenant = getTenantOrThrow(tenantId);
 
         tenantRepository.findByWhatsappPhoneNumberId(request.whatsappPhoneNumberId())
                 .filter(other -> !other.getId().equals(tenant.getId()))
@@ -61,7 +87,8 @@ public class TenantService {
         }
         tenantRepository.save(tenant);
 
-        auditService.record("Tenant", tenant.getId().toString(), AuditAction.UPDATE, oldSnapshot,
+        auditService.recordForTenant(tenant.getId(), "Tenant", tenant.getId().toString(), AuditAction.UPDATE,
+                oldSnapshot,
                 Map.of("whatsappPhoneNumberId", tenant.getWhatsappPhoneNumberId(),
                         "whatsappBusinessAccountId", String.valueOf(tenant.getWhatsappBusinessAccountId()),
                         "accessTokenChanged", true),
@@ -70,9 +97,10 @@ public class TenantService {
         return toProfileResponse(tenant);
     }
 
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     @Transactional
-    public TenantProfileResponse updateTwilioConfig(UpdateTwilioConfigRequest request) {
-        Tenant tenant = getCurrentTenantOrThrow();
+    public TenantProfileResponse updateTwilioConfig(Long tenantId, UpdateTwilioConfigRequest request) {
+        Tenant tenant = getTenantOrThrow(tenantId);
 
         tenantRepository.findByTwilioWhatsAppNumber(request.twilioWhatsAppNumber())
                 .filter(other -> !other.getId().equals(tenant.getId()))
@@ -93,7 +121,8 @@ public class TenantService {
         tenant.setTwilioWhatsAppNumber(request.twilioWhatsAppNumber());
         tenantRepository.save(tenant);
 
-        auditService.record("Tenant", tenant.getId().toString(), AuditAction.UPDATE, oldSnapshot,
+        auditService.recordForTenant(tenant.getId(), "Tenant", tenant.getId().toString(), AuditAction.UPDATE,
+                oldSnapshot,
                 Map.of("twilioAccountSid", String.valueOf(tenant.getTwilioAccountSid()),
                         "twilioWhatsAppNumber", String.valueOf(tenant.getTwilioWhatsAppNumber()),
                         "authTokenChanged", true),
@@ -102,9 +131,10 @@ public class TenantService {
         return toProfileResponse(tenant);
     }
 
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     @Transactional
-    public TenantProfileResponse updateSupportedLanguages(UpdateSupportedLanguagesRequest request) {
-        Tenant tenant = getCurrentTenantOrThrow();
+    public TenantProfileResponse updateSupportedLanguages(Long tenantId, UpdateSupportedLanguagesRequest request) {
+        Tenant tenant = getTenantOrThrow(tenantId);
 
         Set<String> requested = request.supportedLanguageCodes() != null
                 ? request.supportedLanguageCodes() : Set.of();
@@ -126,7 +156,7 @@ public class TenantService {
         tenant.setSupportedLanguageCodes(new java.util.LinkedHashSet<>(requested));
         tenantRepository.save(tenant);
 
-        auditService.record("Tenant", tenant.getId().toString(), AuditAction.UPDATE,
+        auditService.recordForTenant(tenant.getId(), "Tenant", tenant.getId().toString(), AuditAction.UPDATE,
                 Map.of("supportedLanguageCodes", previous),
                 Map.of("supportedLanguageCodes", tenant.getSupportedLanguageCodes()),
                 AuditChannel.API);
@@ -134,16 +164,33 @@ public class TenantService {
         return toProfileResponse(tenant);
     }
 
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     @Transactional
-    public TenantProfileResponse updateMessagingProvider(UpdateMessagingProviderRequest request) {
-        Tenant tenant = getCurrentTenantOrThrow();
+    public TenantProfileResponse updateMessagingProvider(Long tenantId, UpdateMessagingProviderRequest request) {
+        Tenant tenant = getTenantOrThrow(tenantId);
         MessagingProvider previous = tenant.getMessagingProvider();
         tenant.setMessagingProvider(request.provider());
         tenantRepository.save(tenant);
 
-        auditService.record("Tenant", tenant.getId().toString(), AuditAction.UPDATE,
+        auditService.recordForTenant(tenant.getId(), "Tenant", tenant.getId().toString(), AuditAction.UPDATE,
                 Map.of("messagingProvider", String.valueOf(previous)),
                 Map.of("messagingProvider", String.valueOf(tenant.getMessagingProvider())),
+                AuditChannel.API);
+
+        return toProfileResponse(tenant);
+    }
+
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @Transactional
+    public TenantProfileResponse updateCustomerRegistrationPolicy(Long tenantId, boolean requireCustomerRegistration) {
+        Tenant tenant = getTenantOrThrow(tenantId);
+        boolean previous = tenant.isRequireCustomerRegistration();
+        tenant.setRequireCustomerRegistration(requireCustomerRegistration);
+        tenantRepository.save(tenant);
+
+        auditService.recordForTenant(tenant.getId(), "Tenant", tenant.getId().toString(), AuditAction.UPDATE,
+                Map.of("requireCustomerRegistration", previous),
+                Map.of("requireCustomerRegistration", tenant.isRequireCustomerRegistration()),
                 AuditChannel.API);
 
         return toProfileResponse(tenant);
@@ -154,6 +201,10 @@ public class TenantService {
         if (tenantId == null) {
             throw new ResourceNotFoundException("No tenant context for this request");
         }
+        return getTenantOrThrow(tenantId);
+    }
+
+    private Tenant getTenantOrThrow(Long tenantId) {
         return tenantRepository.findById(tenantId)
                 .orElseThrow(() -> ResourceNotFoundException.of("Tenant", tenantId));
     }
@@ -174,6 +225,7 @@ public class TenantService {
                 tenant.getMessagingProvider().name(),
                 tenant.getTwilioWhatsAppNumber(),
                 StringUtils.hasText(tenant.getTwilioAuthToken()),
-                SupportedLanguage.orderedCodes(tenant.getSupportedLanguageCodes()));
+                SupportedLanguage.orderedCodes(tenant.getSupportedLanguageCodes()),
+                tenant.isRequireCustomerRegistration());
     }
 }
