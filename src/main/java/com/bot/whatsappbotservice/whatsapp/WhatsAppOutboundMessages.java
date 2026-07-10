@@ -60,6 +60,19 @@ final class WhatsAppOutboundMessages {
     record DocumentPayload(String id, String filename, String caption) {
     }
 
+    record ImageMessage(
+            @JsonProperty("messaging_product") String messagingProduct,
+            String to,
+            String type,
+            ImagePayload image) {
+        static ImageMessage of(String to, String mediaId, String caption) {
+            return new ImageMessage("whatsapp", to, "image", new ImagePayload(mediaId, caption));
+        }
+    }
+
+    record ImagePayload(String id, String caption) {
+    }
+
     /** Response shape of Meta's {@code POST /{phoneNumberId}/media} upload endpoint. */
     record MediaUploadResponse(String id) {
     }

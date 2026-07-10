@@ -50,6 +50,12 @@ public class TwilioWebhookService {
 
     @Async("whatsappTaskExecutor")
     public void processIncoming(String from, String to, String body, String messageSid, String profileName) {
+        processIncoming(from, to, body, messageSid, profileName, null);
+    }
+
+    @Async("whatsappTaskExecutor")
+    public void processIncoming(String from, String to, String body, String messageSid, String profileName,
+                                 String mediaUrl) {
         try {
             String fromNumber = stripPrefix(from);
             String toNumber = stripPrefix(to);
@@ -62,7 +68,7 @@ public class TwilioWebhookService {
 
             TenantContext.setTenantId(tenant.getId());
             try {
-                processMessage(tenant, fromNumber, toNumber, body, messageSid, profileName);
+                processMessage(tenant, fromNumber, toNumber, body, messageSid, profileName, mediaUrl);
             } finally {
                 TenantContext.clear();
             }
@@ -72,7 +78,7 @@ public class TwilioWebhookService {
     }
 
     private void processMessage(Tenant tenant, String fromNumber, String toNumber, String body, String messageSid,
-                                 String profileName) {
+                                 String profileName, String mediaUrl) {
         if (whatsAppMessageRepository.existsByWaMessageId(messageSid)) {
             logger.debug("Duplicate Twilio message {} for tenant {}; already processed, skipping",
                     messageSid, tenant.getId());
@@ -101,7 +107,11 @@ public class TwilioWebhookService {
         if (customer == null) {
             return;
         }
-        conversationService.handleMessage(tenant, customer, messageSid, body, null);
+        // Twilio delivers media as a public URL; the message Body doubles as the photo caption.
+        com.bot.whatsappbotservice.whatsapp.InboundMedia media = mediaUrl != null && !mediaUrl.isBlank()
+                ? new com.bot.whatsappbotservice.whatsapp.InboundMedia(mediaUrl, body)
+                : null;
+        conversationService.handleMessage(tenant, customer, messageSid, body, null, media);
     }
 
     private String stripPrefix(String value) {

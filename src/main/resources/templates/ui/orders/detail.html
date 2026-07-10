@@ -98,6 +98,39 @@
         </form>
     </div>
 
+    <div class="card" th:if="${not #lists.isEmpty(concerns)}">
+        <h2>Customer Concerns</h2>
+        <p>Photos the customer sent on WhatsApp about this order — the image itself was forwarded
+            to your WhatsApp number.</p>
+        <table>
+            <thead>
+            <tr>
+                <th>When</th>
+                <th>Note</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="c : ${concerns}">
+                <td th:text="${c.createdAt()}"></td>
+                <td th:text="${c.caption()} ?: '—'"></td>
+                <td>
+                    <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(c.status())}"
+                          th:text="${c.status()}"></span>
+                </td>
+                <td>
+                    <form th:if="${c.status().name() == 'OPEN'}"
+                          th:action="@{/ui/orders/{id}/concerns/{cid}/resolve(id=${order.id},cid=${c.id()})}"
+                          method="post" class="inline-form">
+                        <button type="submit" class="btn">Resolve</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
     <h2>Status History</h2>
     <table th:if="${history.hasContent()}">
         <thead>

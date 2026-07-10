@@ -13,6 +13,7 @@ import com.bot.whatsappbotservice.customer.CustomerRepository;
 import com.bot.whatsappbotservice.inventory.InventoryService;
 import com.bot.whatsappbotservice.inventory.InventoryTransactionType;
 import com.bot.whatsappbotservice.inventory.dto.AdjustStockRequest;
+import com.bot.whatsappbotservice.order.dto.ConcernResponse;
 import com.bot.whatsappbotservice.order.dto.CreateOrderRequest;
 import com.bot.whatsappbotservice.order.dto.OrderItemRequest;
 import com.bot.whatsappbotservice.order.dto.OrderResponse;
@@ -20,6 +21,7 @@ import com.bot.whatsappbotservice.order.dto.OrderStatusHistoryResponse;
 import com.bot.whatsappbotservice.order.dto.OutstandingPaymentsSummary;
 import com.bot.whatsappbotservice.order.dto.RecordPaymentRequest;
 import com.bot.whatsappbotservice.order.dto.UpdateOrderStatusRequest;
+import com.bot.whatsappbotservice.order.event.ConcernResolvedEvent;
 import com.bot.whatsappbotservice.order.event.OrderStatusChangedEvent;
 import com.bot.whatsappbotservice.order.event.PaymentRecordedEvent;
 import com.bot.whatsappbotservice.tenant.Tenant;
@@ -62,6 +64,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
+    private final OrderConcernRepository orderConcernRepository;
     private final CustomerRepository customerRepository;
     private final ProductRepository productRepository;
     private final TenantRepository tenantRepository;
@@ -71,12 +74,14 @@ public class OrderService {
     private final ApplicationEventPublisher eventPublisher;
 
     public OrderService(OrderRepository orderRepository, OrderStatusHistoryRepository orderStatusHistoryRepository,
+                         OrderConcernRepository orderConcernRepository,
                          CustomerRepository customerRepository, ProductRepository productRepository,
                          TenantRepository tenantRepository, InventoryService inventoryService,
                          OrderMapper orderMapper, AuditService auditService,
                          ApplicationEventPublisher eventPublisher) {
         this.orderRepository = orderRepository;
         this.orderStatusHistoryRepository = orderStatusHistoryRepository;
+        this.orderConcernRepository = orderConcernRepository;
         this.customerRepository = customerRepository;
         this.productRepository = productRepository;
         this.tenantRepository = tenantRepository;
@@ -360,6 +365,44 @@ public class OrderService {
         return orderRepository.findByCustomerIdAndCreatedAtBetweenOrderByCreatedAtDesc(customerId, from, to).stream()
                 .map(orderMapper::toResponse)
                 .toList();
+    }
+
+    /** Records a customer-raised concern (WhatsApp photo about a delivery). {@code orderId} may be
+     * null — the concern still gets tracked, just unpinned. Returns the order number for messaging,
+     * or null when unpinned. */
+    @Transactional
+    public void recordConcern(Long orderId, Long customerId, String mediaReference, String caption) {
+        Customer customer = customerRepository.findById(customerId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Customer", customerId));
+        OrderConcern concern = new OrderConcern();
+        if (orderId != null) {
+            concern.setOrder(getOrThrow(orderId));
+        }
+        concern.setCustomer(customer);
+        concern.setMediaReference(mediaReference);
+        concern.setCaption(caption);
+        orderConcernRepository.save(concern);
+        log.info("Concern recorded for customer {} (order {})", customerId, orderId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConcernResponse> listConcerns(Long orderId) {
+        return orderConcernRepository.findByOrderIdOrderByCreatedAtDesc(orderId).stream()
+                .map(c -> new ConcernResponse(c.getId(), c.getCaption(), c.getStatus(), c.getCreatedAt()))
+                .toList();
+    }
+
+    @Transactional
+    public void resolveConcern(Long concernId) {
+        OrderConcern concern = orderConcernRepository.findById(concernId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Concern", concernId));
+        if (concern.getStatus() == ConcernStatus.RESOLVED) {
+            // Idempotent: a double-clicked Resolve button must not message the customer twice.
+            return;
+        }
+        concern.setStatus(ConcernStatus.RESOLVED);
+        orderConcernRepository.save(concern);
+        eventPublisher.publishEvent(new ConcernResolvedEvent(TenantContext.getTenantId(), concern.getId()));
     }
 
     @Transactional(readOnly = true)

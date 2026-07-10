@@ -128,7 +128,11 @@ public class WhatsAppWebhookService {
         if (customer == null) {
             return;
         }
-        conversationService.handleMessage(tenant, customer, message.id(), message.textBody(), message.replyId());
+        InboundMedia media = message.imageMediaId() != null
+                ? new InboundMedia(message.imageMediaId(), message.imageCaption())
+                : null;
+        conversationService.handleMessage(tenant, customer, message.id(), message.textBody(), message.replyId(),
+                media);
     }
 
     private String toJson(Object value) {

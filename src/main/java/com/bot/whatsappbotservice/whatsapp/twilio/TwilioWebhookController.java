@@ -77,7 +77,7 @@ public class TwilioWebhookController {
         }
 
         webhookService.processIncoming(from, to, params.getFirst("Body"), messageSid,
-                params.getFirst("ProfileName"));
+                params.getFirst("ProfileName"), params.getFirst("MediaUrl0"));
         return ResponseEntity.ok().build();
     }
 

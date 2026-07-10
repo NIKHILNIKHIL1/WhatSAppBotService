@@ -1,6 +1,7 @@
 package com.bot.whatsappbotservice.whatsapp;
 
 import com.bot.whatsappbotservice.whatsapp.WhatsAppOutboundMessages.DocumentMessage;
+import com.bot.whatsappbotservice.whatsapp.WhatsAppOutboundMessages.ImageMessage;
 import com.bot.whatsappbotservice.whatsapp.WhatsAppOutboundMessages.InteractiveButtonsMessage;
 import com.bot.whatsappbotservice.whatsapp.WhatsAppOutboundMessages.ListSection;
 import com.bot.whatsappbotservice.whatsapp.WhatsAppOutboundMessages.InteractiveListMessage;
@@ -72,6 +73,14 @@ public class WhatsAppClient {
     public String sendDocumentByMediaId(String phoneNumberId, String accessToken, String to, String mediaId,
                                          String filename, String caption) {
         return send(phoneNumberId, accessToken, DocumentMessage.of(to, mediaId, filename, caption));
+    }
+
+    /** Sends an image by media id. Works with an id from {@code uploadMedia} AND with the media id
+     * of an image a customer sent inbound — inbound media belongs to the same WABA, so it can be
+     * forwarded (e.g. to the vendor's number) without a download/re-upload round trip. */
+    public String sendImageByMediaId(String phoneNumberId, String accessToken, String to, String mediaId,
+                                      String caption) {
+        return send(phoneNumberId, accessToken, ImageMessage.of(to, mediaId, caption));
     }
 
     private String send(String phoneNumberId, String accessToken, Object requestBody) {

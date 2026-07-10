@@ -39,9 +39,34 @@ public class WhatsAppMessages {
      * "pick your language" prompt) plus every supported language's self-name, numbered in
      * {@link SupportedLanguage}'s fixed order.
      */
+    /**
+     * Resolves {@code key + "_named"} with the customer's name as argument {@code {0}} (the plain
+     * key's arguments shift up by one) when a name is known, else the plain key unchanged — one
+     * convention for every personalized bot message, so "Thank you, Priya!" never degrades to
+     * "Thank you, null!".
+     */
+    public String getPersonalized(String key, String languageCode, String customerName, Object... args) {
+        if (customerName == null || customerName.isBlank()) {
+            return get(key, languageCode, args);
+        }
+        Object[] shifted = new Object[args.length + 1];
+        shifted[0] = customerName.strip();
+        System.arraycopy(args, 0, shifted, 1, args.length);
+        return get(key + "_named", languageCode, shifted);
+    }
+
     public String languagePrompt(Set<String> supportedLanguageCodes) {
+        return languagePrompt(null, supportedLanguageCodes);
+    }
+
+    /** Greets the customer by name ("Welcome, Priya!") when one is known — with registration
+     * mandatory that's the normal case; a blank name falls back to the impersonal greeting. */
+    public String languagePrompt(String customerName, Set<String> supportedLanguageCodes) {
         List<String> ordered = SupportedLanguage.orderedCodes(supportedLanguageCodes);
-        StringBuilder sb = new StringBuilder(get("language.prompt.intro", "en"));
+        String intro = customerName != null && !customerName.isBlank()
+                ? get("language.prompt.intro_named", "en", customerName.strip())
+                : get("language.prompt.intro", "en");
+        StringBuilder sb = new StringBuilder(intro);
         for (int i = 0; i < ordered.size(); i++) {
             sb.append('\n').append(i + 1).append(". ").append(get("language.self-name", ordered.get(i)));
         }

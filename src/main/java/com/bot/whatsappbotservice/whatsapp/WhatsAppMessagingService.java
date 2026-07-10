@@ -111,6 +111,28 @@ public class WhatsAppMessagingService {
                 });
     }
 
+    /**
+     * Forwards an image. {@code mediaReference} is provider-shaped: for Meta tenants it's a media
+     * id (including the id of an inbound customer photo — same WABA, so it forwards directly); for
+     * Twilio tenants inbound media arrives as a public URL, which is sent as a link in a text
+     * message since plain Twilio has no media-by-id send.
+     */
+    @Transactional
+    public MessageStatus sendImage(Tenant tenant, Customer customer, String toPhoneNumber, String mediaReference,
+                                    String caption) {
+        if (isTwilio(tenant)) {
+            String text = caption + "\n" + mediaReference;
+            return sendAndLog(tenant, customer, toPhoneNumber, "image",
+                    Map.of("mediaUrl", mediaReference, "caption", caption),
+                    () -> twilioClient.sendText(tenant.getTwilioAccountSid(), tenant.getTwilioAuthToken(),
+                            tenant.getTwilioWhatsAppNumber(), toPhoneNumber, text));
+        }
+        return sendAndLog(tenant, customer, toPhoneNumber, "image",
+                Map.of("mediaId", mediaReference, "caption", caption),
+                () -> whatsAppClient.sendImageByMediaId(tenant.getWhatsappPhoneNumberId(),
+                        tenant.getWhatsappAccessToken(), toPhoneNumber, mediaReference, caption));
+    }
+
     private boolean isTwilio(Tenant tenant) {
         return tenant.getMessagingProvider() == MessagingProvider.TWILIO;
     }

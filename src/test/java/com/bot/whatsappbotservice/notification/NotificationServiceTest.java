@@ -33,6 +33,8 @@ class NotificationServiceTest {
     @Mock
     private OrderRepository orderRepository;
     @Mock
+    private com.bot.whatsappbotservice.order.OrderConcernRepository orderConcernRepository;
+    @Mock
     private TenantRepository tenantRepository;
     @Mock
     private WhatsAppMessagingService whatsAppMessagingService;
@@ -47,8 +49,8 @@ class NotificationServiceTest {
         messageSource.setBasename("i18n/messages");
         messageSource.setDefaultEncoding("UTF-8");
         notificationService = new NotificationService(
-                notificationRepository, orderRepository, tenantRepository, whatsAppMessagingService,
-                new com.bot.whatsappbotservice.i18n.WhatsAppMessages(messageSource));
+                notificationRepository, orderRepository, orderConcernRepository, tenantRepository,
+                whatsAppMessagingService, new com.bot.whatsappbotservice.i18n.WhatsAppMessages(messageSource));
         when(notificationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -187,6 +189,30 @@ class NotificationServiceTest {
                 .orElseThrow();
         assertThat(customerNotification.getStatus()).isEqualTo(NotificationStatus.SENT);
         assertThat(customerNotification.getSentAt()).isNotNull();
+    }
+
+    @Test
+    void concernResolvedNotifiesCustomerWithOrderReferenceInTheirLanguage() {
+        Tenant tenant = tenant();
+        OrderHeader order = order(tenant);
+        com.bot.whatsappbotservice.order.OrderConcern concern = new com.bot.whatsappbotservice.order.OrderConcern();
+        concern.setId(5L);
+        concern.setOrder(order);
+        concern.setCustomer(order.getCustomer());
+        when(orderConcernRepository.findById(5L)).thenReturn(Optional.of(concern));
+        when(tenantRepository.findById(7L)).thenReturn(Optional.of(tenant));
+        when(whatsAppMessagingService.sendText(any(), any(), anyString(), anyString()))
+                .thenReturn(MessageStatus.SENT);
+
+        notificationService.notifyConcernResolved(7L, 5L);
+
+        verify(whatsAppMessagingService).sendText(eq(tenant), eq(order.getCustomer()), eq("+14155550100"),
+                eq("✅ Update from the shop: your concern about order ORD-1 has been resolved. "
+                        + "Thank you for your patience!"));
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, org.mockito.Mockito.times(2)).save(captor.capture());
+        assertThat(captor.getValue().getTemplateCode()).isEqualTo("CONCERN_RESOLVED");
+        assertThat(captor.getValue().getStatus()).isEqualTo(NotificationStatus.SENT);
     }
 
     private Tenant tenant() {

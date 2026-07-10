@@ -49,7 +49,8 @@ public record WhatsAppWebhookPayload(String object, List<WebhookEntry> entry) {
             String type,
             TextBody text,
             InteractiveReply interactive,
-            ButtonReply button) {
+            ButtonReply button,
+            ImageContent image) {
 
         /** The selection id from whichever reply shape is present, or null for free text. */
         public String replyId() {
@@ -65,10 +66,24 @@ public record WhatsAppWebhookPayload(String object, List<WebhookEntry> entry) {
         public String textBody() {
             return text != null ? text.body() : null;
         }
+
+        public String imageMediaId() {
+            return image != null ? image.id() : null;
+        }
+
+        public String imageCaption() {
+            return image != null ? image.caption() : null;
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TextBody(String body) {
+    }
+
+    /** A photo the customer sent: {@code id} is Meta's media id (the bytes live on Meta's CDN and
+     * can be re-sent by id within the same WABA), {@code caption} the text under it, if any. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ImageContent(String id, @JsonProperty("mime_type") String mimeType, String caption) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

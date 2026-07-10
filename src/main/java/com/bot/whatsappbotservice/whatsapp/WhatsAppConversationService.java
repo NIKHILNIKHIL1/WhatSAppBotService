@@ -63,12 +63,26 @@ public class WhatsAppConversationService {
     private static final Logger log = LoggerFactory.getLogger(WhatsAppConversationService.class);
     private static final int MAX_LIST_ROWS = 10;
     // Meta's interactive list caps at 10 rows total across all sections — the category page size
-    // is trimmed to leave room for the two reserved "My Orders"/"Help" rows appended below it.
-    private static final int MAX_CATEGORY_ROWS = MAX_LIST_ROWS - 2;
+    // leaves room for the two reserved "My Orders"/"Help" rows plus a possible "More" pagination
+    // row; the product page size leaves room for "More" only.
+    private static final int CATEGORY_PAGE_SIZE = MAX_LIST_ROWS - 3;
+    private static final int PRODUCT_PAGE_SIZE = MAX_LIST_ROWS - 1;
+    // Meta rejects interactive message bodies over 1024 chars — above this budget the itemized
+    // cart goes out as separate (chunked) text and the interactive body shrinks to a one-line
+    // summary. Plain text messages cap at 4096; TEXT_CHUNK_LIMIT leaves headroom.
+    private static final int INTERACTIVE_BODY_BUDGET = 900;
+    private static final int TEXT_CHUNK_LIMIT = 3500;
+    private static final int MAX_CART_LINES = 100;
     private static final Set<String> RESET_TRIGGERS = Set.of("hi", "hello", "hey", "menu", "start", "restart");
     private static final Set<String> HELP_TRIGGERS = Set.of("help", "support");
     private static final Set<String> ORDER_HISTORY_TRIGGERS =
             Set.of("orders", "my orders", "myorders", "order history");
+    private static final Set<String> REPEAT_TRIGGERS = Set.of("repeat", "repeat order", "reorder");
+    // One bulk-order line: "MILK1 x 20", "MILK1 20", "MILK1*2.5" or bare "MILK1" (quantity 1).
+    // The code group requires at least one letter so pure numbers stay with the numeric-reply
+    // fallback (menu selections) and quantity entry.
+    private static final java.util.regex.Pattern BULK_LINE = java.util.regex.Pattern.compile(
+            "^(?=\\S*[a-zA-Z])(\\S+)\\s*(?:[xX*,]\\s*|\\s+)?(\\d+(?:\\.\\d+)?)?\\s*$");
     private static final String MENU_ORDERS_ID = "menu:orders";
     private static final String MENU_HELP_ID = "menu:help";
     private static final int RECENT_ORDERS_LIMIT = 3;
@@ -106,6 +120,22 @@ public class WhatsAppConversationService {
 
     @Transactional
     public void handleMessage(Tenant tenant, Customer customer, String waMessageId, String textBody, String replyId) {
+        handleMessage(tenant, customer, waMessageId, textBody, replyId, null);
+    }
+
+    @Transactional
+    public void handleMessage(Tenant tenant, Customer customer, String waMessageId, String textBody, String replyId,
+                               InboundMedia media) {
+        // A photo is a concern about a delivery ("this packet arrived torn"), never a step reply —
+        // handled as a stateless side channel (like help): forwarded to the vendor, acknowledged,
+        // and whatever the customer was doing in the flow is left exactly where it was.
+        if (media != null) {
+            WhatsAppSession mediaSession = sessionStore.get(tenant.getId(), customer.getPhoneNumber())
+                    .orElseGet(WhatsAppSession::initial);
+            handleCustomerConcern(tenant, customer, mediaSession, media);
+            return;
+        }
+
         String normalizedText = textBody != null ? textBody.trim().toLowerCase() : null;
         if (replyId == null && normalizedText != null && RESET_TRIGGERS.contains(normalizedText)) {
             sessionStore.save(tenant.getId(), customer.getPhoneNumber(), WhatsAppSession.initial());
@@ -138,14 +168,31 @@ public class WhatsAppConversationService {
             return;
         }
 
+        // Free-text escape hatches below need a language and must not swallow a quantity reply.
+        boolean freeTextAllowed = resolvedReplyId == null && normalizedText != null && !normalizedText.isBlank()
+                && session.step() != ConversationStep.LANGUAGE_SELECTION
+                && session.step() != ConversationStep.QUANTITY_ENTRY;
+
+        // "repeat" clones the customer's last order into the cart — the fastest path for the
+        // weekly reorder pattern.
+        if (freeTextAllowed && REPEAT_TRIGGERS.contains(normalizedText)) {
+            handleRepeatLastOrder(tenant, customer, session);
+            return;
+        }
+
+        // Bulk order entry: several lines of "CODE x QTY" pasted in one message add many products
+        // to the cart in a single turn — the only workable way to place a 50-line order in chat.
+        // A single line only counts as bulk when it carries a quantity ("MILK1 x 5"); a bare code
+        // stays with the one-product flow below.
+        if (freeTextAllowed && looksLikeBulkOrder(textBody)) {
+            handleBulkOrderEntry(tenant, customer, session, textBody);
+            return;
+        }
+
         // Another global escape hatch: free text that isn't a recognized reply/keyword and matches
         // an active product's SKU lets the customer skip straight to quantity entry, bypassing
-        // category/product browsing entirely. Not offered before LANGUAGE_SELECTION completes (bot
-        // copy needs a language first) or mid QUANTITY_ENTRY (free text there is already a quantity
-        // reply for the product already selected).
-        if (resolvedReplyId == null && normalizedText != null && !normalizedText.isBlank()
-                && session.step() != ConversationStep.LANGUAGE_SELECTION
-                && session.step() != ConversationStep.QUANTITY_ENTRY) {
+        // category/product browsing entirely.
+        if (freeTextAllowed) {
             Optional<Product> productByCode = productRepository.findBySkuIgnoreCase(normalizedText)
                     .filter(Product::isActive);
             if (productByCode.isPresent()) {
@@ -211,6 +258,11 @@ public class WhatsAppConversationService {
     }
 
     private void handleCategorySelection(Tenant tenant, Customer customer, WhatsAppSession session, String replyId) {
+        Integer nextPage = parseIndexFromReply(replyId, "catpage:");
+        if (nextPage != null) {
+            sendCategoryList(tenant, customer, session, nextPage);
+            return;
+        }
         Long categoryId = parseIdFromReply(replyId, "cat:");
         Optional<Category> category = categoryId != null
                 ? categoryRepository.findById(categoryId).filter(Category::isActive)
@@ -229,6 +281,11 @@ public class WhatsAppConversationService {
 
     private void handleProductSelection(Tenant tenant, Customer customer, WhatsAppSession session, String replyId) {
         String lang = customerLanguage(tenant, session);
+        Integer nextPage = parseIndexFromReply(replyId, "prodpage:");
+        if (nextPage != null) {
+            sendProductList(tenant, customer, session.categoryId(), session, nextPage);
+            return;
+        }
         Long productId = parseIdFromReply(replyId, "prod:");
         Optional<Product> product = productId != null
                 ? productRepository.findById(productId).filter(Product::isActive)
@@ -277,6 +334,153 @@ public class WhatsAppConversationService {
                 messages.get("bot.quantity.prompt", lang, product.getUnit(), product.getLocalizedName(lang)));
     }
 
+    /** Bulk only when the message is multi-line, or a single line that carries a quantity — a
+     * bare product code stays with the classic code → quantity-prompt flow. */
+    private boolean looksLikeBulkOrder(String textBody) {
+        if (textBody == null || textBody.isBlank()) {
+            return false;
+        }
+        String[] lines = textBody.strip().split("\\R+");
+        if (lines.length > 1) {
+            return BULK_LINE.matcher(lines[0].strip()).matches();
+        }
+        java.util.regex.Matcher matcher = BULK_LINE.matcher(lines[0].strip());
+        return matcher.matches() && matcher.group(2) != null;
+    }
+
+    /**
+     * One pasted message like "MILK1 x 20 / PAN02 x 5 / GHEE1 x 2.5" (one item per line) adds
+     * everything to the cart in a single turn. Each line validates independently — unknown codes,
+     * bad quantities and insufficient stock are reported per line while the good lines still land
+     * in the cart, so one typo doesn't force retyping fifty lines.
+     */
+    private void handleBulkOrderEntry(Tenant tenant, Customer customer, WhatsAppSession session, String textBody) {
+        String lang = customerLanguage(tenant, session);
+        List<String> errors = new java.util.ArrayList<>();
+        WhatsAppSession updated = session;
+        int added = 0;
+
+        for (String rawLine : textBody.strip().split("\\R+")) {
+            String line = rawLine.strip();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (updated.cart().size() >= MAX_CART_LINES) {
+                errors.add("- \"" + truncate(line, 30) + "\": "
+                        + messages.get("bot.cart.full", lang, String.valueOf(MAX_CART_LINES)));
+                break;
+            }
+            java.util.regex.Matcher matcher = BULK_LINE.matcher(line);
+            if (!matcher.matches()) {
+                errors.add("- \"" + truncate(line, 30) + "\": " + messages.get("bot.bulk.reason_format", lang));
+                continue;
+            }
+            Product product = productRepository.findBySkuIgnoreCase(matcher.group(1))
+                    .filter(Product::isActive)
+                    .orElse(null);
+            if (product == null) {
+                errors.add("- \"" + truncate(line, 30) + "\": " + messages.get("bot.bulk.reason_unknown", lang));
+                continue;
+            }
+            BigDecimal quantity = parsePositiveDecimal(matcher.group(2) != null ? matcher.group(2) : "1");
+            if (quantity == null) {
+                errors.add("- \"" + truncate(line, 30) + "\": " + messages.get("bot.bulk.reason_quantity", lang));
+                continue;
+            }
+            BigDecimal available = inventoryRepository.findByProductId(product.getId())
+                    .map(Inventory::getQuantityOnHand)
+                    .orElse(BigDecimal.ZERO);
+            if (available.compareTo(quantity) < 0) {
+                errors.add("- \"" + truncate(line, 30) + "\": " + messages.get("bot.bulk.reason_stock", lang,
+                        String.valueOf(available), product.getUnit()));
+                continue;
+            }
+            updated = updated.withCartLineAdded(
+                    new CartLine(product.getId(), product.getLocalizedName(lang), product.getPrice(), quantity));
+            added++;
+        }
+
+        StringBuilder response = new StringBuilder();
+        if (added > 0) {
+            response.append(messages.get("bot.bulk.summary", lang, String.valueOf(added)));
+        }
+        if (!errors.isEmpty()) {
+            if (response.length() > 0) {
+                response.append('\n');
+            }
+            response.append(messages.get("bot.bulk.errors_header", lang, String.valueOf(errors.size())))
+                    .append(String.join("\n", errors));
+        }
+        sendChunkedText(tenant, customer, response.toString());
+
+        if (added == 0) {
+            // Nothing landed — leave the session exactly where it was so whatever prompt the
+            // customer was answering is still valid.
+            return;
+        }
+        sendCartSummary(tenant, customer, updated.withStep(ConversationStep.CART_REVIEW));
+    }
+
+    /** "repeat" — clone the customer's most recent order into the cart at today's prices, skipping
+     * (and reporting) anything that is no longer available or out of stock. */
+    private void handleRepeatLastOrder(Tenant tenant, Customer customer, WhatsAppSession session) {
+        String lang = customerLanguage(tenant, session);
+        List<OrderResponse> recent = orderService.listRecentForCustomer(customer.getId(), 1);
+        if (recent.isEmpty()) {
+            messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
+                    messages.get("bot.repeat.none", lang));
+            return;
+        }
+        OrderResponse lastOrder = recent.get(0);
+
+        List<String> skipped = new java.util.ArrayList<>();
+        WhatsAppSession updated = session;
+        int added = 0;
+        for (OrderItemResponse item : lastOrder.items()) {
+            if (updated.cart().size() >= MAX_CART_LINES) {
+                skipped.add("- " + item.productNameSnapshot() + ": "
+                        + messages.get("bot.cart.full", lang, String.valueOf(MAX_CART_LINES)));
+                break;
+            }
+            Product product = productRepository.findById(item.productId())
+                    .filter(Product::isActive)
+                    .orElse(null);
+            if (product == null) {
+                skipped.add("- " + item.productNameSnapshot() + ": " + messages.get("bot.bulk.reason_unknown", lang));
+                continue;
+            }
+            BigDecimal available = inventoryRepository.findByProductId(product.getId())
+                    .map(Inventory::getQuantityOnHand)
+                    .orElse(BigDecimal.ZERO);
+            if (available.compareTo(item.quantity()) < 0) {
+                skipped.add("- " + item.productNameSnapshot() + ": " + messages.get("bot.bulk.reason_stock", lang,
+                        String.valueOf(available), product.getUnit()));
+                continue;
+            }
+            updated = updated.withCartLineAdded(new CartLine(product.getId(), product.getLocalizedName(lang),
+                    product.getPrice(), item.quantity()));
+            added++;
+        }
+
+        StringBuilder response = new StringBuilder();
+        if (added > 0) {
+            response.append(messages.get("bot.repeat.loaded", lang, lastOrder.orderNumber()));
+        }
+        if (!skipped.isEmpty()) {
+            if (response.length() > 0) {
+                response.append('\n');
+            }
+            response.append(messages.get("bot.bulk.errors_header", lang, String.valueOf(skipped.size())))
+                    .append(String.join("\n", skipped));
+        }
+        sendChunkedText(tenant, customer, response.toString());
+
+        if (added == 0) {
+            return;
+        }
+        sendCartSummary(tenant, customer, updated.withStep(ConversationStep.CART_REVIEW));
+    }
+
     private void handleQuantityEntry(Tenant tenant, Customer customer, WhatsAppSession session, String textBody) {
         String lang = customerLanguage(tenant, session);
         BigDecimal quantity = parsePositiveDecimal(textBody);
@@ -295,6 +499,13 @@ public class WhatsAppConversationService {
                     messages.get("bot.product.unavailable", lang));
             sendCartReminder(tenant, customer, session);
             sendCategoryList(tenant, customer, session.withStep(ConversationStep.CATEGORY_SELECTION));
+            return;
+        }
+
+        if (session.cart().size() >= MAX_CART_LINES) {
+            messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
+                    messages.get("bot.cart.full", lang, String.valueOf(MAX_CART_LINES)));
+            sendCartSummary(tenant, customer, session.withStep(ConversationStep.CART_REVIEW));
             return;
         }
 
@@ -352,6 +563,44 @@ public class WhatsAppConversationService {
             return;
         }
         sendCartSummary(tenant, customer, updated);
+    }
+
+    /**
+     * A customer-sent photo, treated as "something's wrong with my delivery": recorded against
+     * their most recent order (unpinned if they have none), acknowledged in their language, and
+     * forwarded to the vendor's WhatsApp with order/customer context so the vendor can act from
+     * their phone. The console tracks it on the order page for resolution.
+     */
+    private void handleCustomerConcern(Tenant tenant, Customer customer, WhatsAppSession session, InboundMedia media) {
+        String lang = customerLanguage(tenant, session);
+        List<OrderResponse> recent = orderService.listRecentForCustomer(customer.getId(), 1);
+        OrderResponse lastOrder = recent.isEmpty() ? null : recent.get(0);
+
+        orderService.recordConcern(lastOrder != null ? lastOrder.id() : null, customer.getId(),
+                media.reference(), media.caption());
+
+        messagingService.sendText(tenant, customer, customer.getPhoneNumber(), lastOrder != null
+                ? messages.getPersonalized("bot.concern.ack_with_order", lang, customer.getFullName(),
+                        lastOrder.orderNumber())
+                : messages.getPersonalized("bot.concern.ack_no_order", lang, customer.getFullName()));
+
+        String vendorPhone = tenant.getVendorNotificationPhoneNumber();
+        if (vendorPhone == null || vendorPhone.isBlank()) {
+            log.info("No vendor notification phone for tenant {}; concern recorded but not forwarded",
+                    tenant.getId());
+            return;
+        }
+        String vendorLang = tenant.getDefaultLanguageCode();
+        String customerLabel = customer.getFullName() != null ? customer.getFullName() : customer.getPhoneNumber();
+        String note = media.caption() != null && !media.caption().isBlank() ? media.caption() : "-";
+        String vendorCaption = lastOrder != null
+                ? messages.get("bot.concern.vendor_with_order", vendorLang,
+                        lastOrder.orderNumber(), customerLabel, customer.getPhoneNumber(), note)
+                : messages.get("bot.concern.vendor_no_order", vendorLang,
+                        customerLabel, customer.getPhoneNumber(), note);
+        // Meta caps image captions at 1024 chars and the customer's own caption feeds into ours —
+        // an over-limit caption would get the whole forward rejected, losing the photo.
+        messagingService.sendImage(tenant, null, vendorPhone, media.reference(), truncate(vendorCaption, 1000));
     }
 
     /** Stateless by design — no session mutation, no step change — so whatever the customer was
@@ -463,8 +712,7 @@ public class WhatsAppConversationService {
         CartCheck check = checkCartAgainstCatalog(session.cart(), lang);
         if (check.blocked() || check.priceChanged()) {
             if (!check.notices().isEmpty()) {
-                messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
-                        String.join("\n", check.notices()));
+                sendChunkedText(tenant, customer, String.join("\n", check.notices()));
             }
             if (check.priceChanged()) {
                 messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
@@ -499,7 +747,7 @@ public class WhatsAppConversationService {
             OrderResponse order = orderService.createOrder(orderRequest);
             sessionStore.clear(tenant.getId(), customer.getPhoneNumber());
 
-            messagingService.sendText(tenant, customer, customer.getPhoneNumber(), renderOrderReceipt(order, lang));
+            sendChunkedText(tenant, customer, renderOrderReceipt(order, lang));
             try {
                 notifyVendor(tenant, order, customer);
             } catch (Exception e) {
@@ -585,7 +833,7 @@ public class WhatsAppConversationService {
 
     private void sendLanguagePrompt(Tenant tenant, Customer customer) {
         messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
-                messages.languagePrompt(tenant.getSupportedLanguageCodes()));
+                messages.languagePrompt(customer.getFullName(), tenant.getSupportedLanguageCodes()));
     }
 
     /** Falls back to the tenant's default language when the session hasn't captured one yet
@@ -601,9 +849,14 @@ public class WhatsAppConversationService {
      * written twice per turn.
      */
     private void sendCategoryList(Tenant tenant, Customer customer, WhatsAppSession session) {
+        sendCategoryList(tenant, customer, session, 0);
+    }
+
+    private void sendCategoryList(Tenant tenant, Customer customer, WhatsAppSession session, int page) {
         String lang = customerLanguage(tenant, session);
-        List<Category> categories =
-                categoryRepository.findByActiveTrue(PageRequest.of(0, MAX_CATEGORY_ROWS)).getContent();
+        org.springframework.data.domain.Page<Category> categoryPage =
+                categoryRepository.findByActiveTrue(PageRequest.of(page, CATEGORY_PAGE_SIZE));
+        List<Category> categories = categoryPage.getContent();
         if (categories.isEmpty()) {
             sessionStore.save(tenant.getId(), customer.getPhoneNumber(), session.withLastOptionIds(List.of()));
             messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
@@ -616,7 +869,7 @@ public class WhatsAppConversationService {
         List<Long> categoryIds = categories.stream().map(Category::getId).toList();
         Set<Long> categoriesWithActiveProduct = productRepository.findCategoryIdsWithActiveProduct(categoryIds);
         Set<Long> categoriesWithStock = inventoryRepository.findCategoryIdsWithInStockProduct(categoryIds);
-        List<ListRow> rows = categories.stream()
+        List<ListRow> rows = new java.util.ArrayList<>(categories.stream()
                 .map(c -> {
                     boolean outOfStock = categoriesWithActiveProduct.contains(c.getId())
                             && !categoriesWithStock.contains(c.getId());
@@ -626,7 +879,11 @@ public class WhatsAppConversationService {
                     return new ListRow("cat:" + c.getId(), truncate(c.getLocalizedName(lang), 24),
                             truncate(description, 72));
                 })
-                .toList();
+                .toList());
+        if (categoryPage.hasNext()) {
+            rows.add(new ListRow("catpage:" + (page + 1),
+                    truncate(messages.get("bot.list.more_row_title", lang), 24), ""));
+        }
         // Two reserved rows, always available from this "home screen" regardless of catalog
         // contents — the same destinations the HELP_TRIGGERS/ORDER_HISTORY_TRIGGERS keywords reach.
         List<ListRow> menuRows = List.of(
@@ -644,9 +901,15 @@ public class WhatsAppConversationService {
     }
 
     private void sendProductList(Tenant tenant, Customer customer, Long categoryId, WhatsAppSession session) {
+        sendProductList(tenant, customer, categoryId, session, 0);
+    }
+
+    private void sendProductList(Tenant tenant, Customer customer, Long categoryId, WhatsAppSession session,
+                                  int page) {
         String lang = customerLanguage(tenant, session);
-        List<Product> products = productRepository.findByCategoryId(categoryId, PageRequest.of(0, MAX_LIST_ROWS))
-                .getContent().stream().filter(Product::isActive).toList();
+        org.springframework.data.domain.Page<Product> productPage =
+                productRepository.findByCategoryIdAndActiveTrue(categoryId, PageRequest.of(page, PRODUCT_PAGE_SIZE));
+        List<Product> products = productPage.getContent();
         if (products.isEmpty()) {
             messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
                     messages.get("bot.product.empty", lang));
@@ -661,7 +924,7 @@ public class WhatsAppConversationService {
         List<Long> productIds = products.stream().map(Product::getId).toList();
         Map<Long, BigDecimal> quantityByProductId = inventoryRepository.findByProductIdIn(productIds).stream()
                 .collect(Collectors.toMap(i -> i.getProduct().getId(), Inventory::getQuantityOnHand));
-        List<ListRow> rows = products.stream()
+        List<ListRow> rows = new java.util.ArrayList<>(products.stream()
                 .map(p -> {
                     BigDecimal quantity = quantityByProductId.get(p.getId());
                     boolean outOfStock = quantity == null || quantity.signum() <= 0;
@@ -671,7 +934,11 @@ public class WhatsAppConversationService {
                     return new ListRow("prod:" + p.getId(), truncate(p.getLocalizedName(lang), 24),
                             truncate(description, 72));
                 })
-                .toList();
+                .toList());
+        if (productPage.hasNext()) {
+            rows.add(new ListRow("prodpage:" + (page + 1),
+                    truncate(messages.get("bot.list.more_row_title", lang), 24), ""));
+        }
         sessionStore.save(tenant.getId(), customer.getPhoneNumber(),
                 session.withLastOptionIds(rows.stream().map(ListRow::id).toList()));
         messagingService.sendInteractiveList(tenant, customer, customer.getPhoneNumber(),
@@ -688,6 +955,13 @@ public class WhatsAppConversationService {
     private void sendCartSummary(Tenant tenant, Customer customer, WhatsAppSession session) {
         String lang = customerLanguage(tenant, session);
         String text = renderCartLines("bot.cart.header", session, lang);
+        // Meta rejects interactive bodies over 1024 chars, so a big cart ships its itemized lines
+        // as plain (chunked) text and the button message carries only a one-line summary.
+        if (text.length() > INTERACTIVE_BODY_BUDGET) {
+            sendChunkedText(tenant, customer, text);
+            text = messages.get("bot.cart.compact_summary", lang,
+                    String.valueOf(session.cart().size()), String.valueOf(cartTotal(session.cart())));
+        }
 
         sessionStore.save(tenant.getId(), customer.getPhoneNumber(),
                 session.withLastOptionIds(List.of("ADD_MORE", "REMOVE", "CHECKOUT")));
@@ -695,6 +969,30 @@ public class WhatsAppConversationService {
                 List.of(ReplyButton.of("ADD_MORE", messages.get("bot.cart.add_more_button", lang)),
                         ReplyButton.of("REMOVE", messages.get("bot.cart.remove_button", lang)),
                         ReplyButton.of("CHECKOUT", messages.get("bot.cart.checkout_button", lang))), lang);
+    }
+
+    /** Splits at line boundaries so no message exceeds WhatsApp's 4096-char text cap. */
+    private void sendChunkedText(Tenant tenant, Customer customer, String text) {
+        String remaining = text;
+        while (remaining.length() > TEXT_CHUNK_LIMIT) {
+            int cut = remaining.lastIndexOf('\n', TEXT_CHUNK_LIMIT);
+            if (cut <= 0) {
+                cut = TEXT_CHUNK_LIMIT;
+            }
+            messagingService.sendText(tenant, customer, customer.getPhoneNumber(), remaining.substring(0, cut));
+            remaining = remaining.substring(cut).stripLeading();
+        }
+        if (!remaining.isBlank()) {
+            messagingService.sendText(tenant, customer, customer.getPhoneNumber(), remaining);
+        }
+    }
+
+    private BigDecimal cartTotal(List<CartLine> lines) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (CartLine line : lines) {
+            total = total.add(line.unitPrice().multiply(line.quantity()));
+        }
+        return total;
     }
 
     /**
@@ -709,8 +1007,7 @@ public class WhatsAppConversationService {
             return;
         }
         String lang = customerLanguage(tenant, session);
-        messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
-                renderCartLines("bot.cart.reminder_header", session, lang));
+        sendChunkedText(tenant, customer, renderCartLines("bot.cart.reminder_header", session, lang));
     }
 
     private String renderCartLines(String headerKey, WhatsAppSession session, String lang) {
@@ -740,7 +1037,8 @@ public class WhatsAppConversationService {
      * {@link OrderItemResponse} snapshots returned by {@code orderService.createOrder} rather than
      * the in-flight session cart — the order is already committed by the time this is sent. */
     private String renderOrderReceipt(OrderResponse order, String lang) {
-        StringBuilder text = new StringBuilder(messages.get("bot.order.placed", lang, order.orderNumber()));
+        StringBuilder text = new StringBuilder(
+                messages.getPersonalized("bot.order.placed", lang, order.customerName(), order.orderNumber()));
         for (OrderItemResponse item : order.items()) {
             text.append(messages.get("bot.cart.line", lang, item.productNameSnapshot(),
                     String.valueOf(item.quantity()), String.valueOf(item.lineTotal())));
@@ -753,6 +1051,28 @@ public class WhatsAppConversationService {
     private void sendCartRemovalList(Tenant tenant, Customer customer, WhatsAppSession session) {
         String lang = customerLanguage(tenant, session);
         List<CartLine> cart = session.cart();
+
+        // A cart bigger than the 10-row interactive cap switches to numeric selection: the items
+        // go out as numbered text (chunked) and the customer replies with a number — the same
+        // lastOptionIds machinery that already powers Twilio's numeric fallback resolves it.
+        if (cart.size() + 1 > MAX_LIST_ROWS) {
+            List<String> optionIds = new java.util.ArrayList<>();
+            StringBuilder text = new StringBuilder(messages.get("bot.cart.remove_prompt", lang)).append('\n');
+            for (int i = 0; i < cart.size(); i++) {
+                CartLine line = cart.get(i);
+                optionIds.add("rmv:" + i);
+                text.append(i + 1).append(". ").append(line.productName())
+                        .append(" — ").append(line.quantity()).append(" x ").append(line.unitPrice()).append('\n');
+            }
+            optionIds.add(CART_REMOVE_BACK_ID);
+            text.append(cart.size() + 1).append(". ").append(messages.get("bot.cart.remove_back_row_title", lang));
+            text.append(messages.get("bot.list.reply_instruction", lang));
+
+            sessionStore.save(tenant.getId(), customer.getPhoneNumber(), session.withLastOptionIds(optionIds));
+            sendChunkedText(tenant, customer, text.toString());
+            return;
+        }
+
         List<ListRow> rows = IntStream.range(0, cart.size())
                 .mapToObj(i -> {
                     CartLine line = cart.get(i);
@@ -773,8 +1093,19 @@ public class WhatsAppConversationService {
 
     private void sendCheckoutConfirmation(Tenant tenant, Customer customer, WhatsAppSession session) {
         String lang = customerLanguage(tenant, session);
-        String summary = renderCartLines("bot.checkout.summary_header", session.cart(), tenant.getCurrencyCode(), lang)
-                + messages.get("bot.checkout.confirm_question", lang);
+        String itemized = renderCartLines("bot.checkout.summary_header", session.cart(), tenant.getCurrencyCode(), lang);
+        String summary;
+        if (itemized.length() > INTERACTIVE_BODY_BUDGET) {
+            // Full order detail as chunked text; the confirm buttons carry only the totals — the
+            // number the customer is committing to stays on the same message as the CONFIRM tap.
+            sendChunkedText(tenant, customer, itemized);
+            summary = messages.get("bot.checkout.compact_summary", lang,
+                    String.valueOf(session.cart().size()), String.valueOf(cartTotal(session.cart())),
+                    tenant.getCurrencyCode())
+                    + messages.get("bot.checkout.confirm_question", lang);
+        } else {
+            summary = itemized + messages.get("bot.checkout.confirm_question", lang);
+        }
         sessionStore.save(tenant.getId(), customer.getPhoneNumber(),
                 session.withLastOptionIds(List.of("CONFIRM", "CANCEL")));
         messagingService.sendInteractiveButtons(tenant, customer, customer.getPhoneNumber(), summary,

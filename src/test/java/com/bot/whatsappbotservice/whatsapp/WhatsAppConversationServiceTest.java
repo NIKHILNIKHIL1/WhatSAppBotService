@@ -99,6 +99,26 @@ class WhatsAppConversationServiceTest {
     }
 
     @Test
+    void greetingWelcomesRegisteredCustomerByName() {
+        customer.setFullName("Priya Sharma");
+
+        conversationService.handleMessage(tenant, customer, "wamid-hi-1", "hi", null);
+
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                argThat(text -> text.startsWith("Welcome, Priya Sharma!")));
+    }
+
+    @Test
+    void greetingStaysImpersonalWhenCustomerHasNoName() {
+        customer.setFullName(null);
+
+        conversationService.handleMessage(tenant, customer, "wamid-hi-2", "hi", null);
+
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                argThat(text -> text.startsWith("Welcome! ")));
+    }
+
+    @Test
     void languageSelectionAdvancesToCategorySelectionAndListsCategories() {
         when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(WhatsAppSession.initial()));
         Category dairy = new Category();
@@ -142,7 +162,7 @@ class WhatsAppConversationServiceTest {
         milk.setUnit("ltr");
         milk.setPrice(new BigDecimal("55.00"));
         milk.setCurrencyCode("INR");
-        when(productRepository.findByCategoryId(eq(5L), any())).thenReturn(new PageImpl<>(List.of(milk)));
+        when(productRepository.findByCategoryIdAndActiveTrue(eq(5L), any())).thenReturn(new PageImpl<>(List.of(milk)));
 
         conversationService.handleMessage(tenant, customer, "wamid-2", null, "cat:5");
 
@@ -163,7 +183,7 @@ class WhatsAppConversationServiceTest {
         butterMilk.setId(6L);
         butterMilk.setActive(true);
         when(categoryRepository.findById(6L)).thenReturn(Optional.of(butterMilk));
-        when(productRepository.findByCategoryId(eq(6L), any())).thenReturn(new PageImpl<>(List.of()));
+        when(productRepository.findByCategoryIdAndActiveTrue(eq(6L), any())).thenReturn(new PageImpl<>(List.of()));
         Category dairy = new Category();
         dairy.setId(5L);
         dairy.setName("Dairy");
@@ -196,7 +216,7 @@ class WhatsAppConversationServiceTest {
         Inventory inventory = new Inventory();
         inventory.setQuantityOnHand(BigDecimal.ZERO);
         when(inventoryRepository.findByProductId(11L)).thenReturn(Optional.of(inventory));
-        when(productRepository.findByCategoryId(eq(5L), any())).thenReturn(new PageImpl<>(List.of(creamMilk)));
+        when(productRepository.findByCategoryIdAndActiveTrue(eq(5L), any())).thenReturn(new PageImpl<>(List.of(creamMilk)));
 
         conversationService.handleMessage(tenant, customer, "wamid-3b", null, "prod:11");
 
@@ -225,7 +245,7 @@ class WhatsAppConversationServiceTest {
         Inventory inventory = new Inventory();
         inventory.setQuantityOnHand(BigDecimal.ZERO);
         when(inventoryRepository.findByProductId(11L)).thenReturn(Optional.of(inventory));
-        when(productRepository.findByCategoryId(eq(5L), any())).thenReturn(new PageImpl<>(List.of(creamMilk)));
+        when(productRepository.findByCategoryIdAndActiveTrue(eq(5L), any())).thenReturn(new PageImpl<>(List.of(creamMilk)));
 
         conversationService.handleMessage(tenant, customer, "wamid-3c", null, "prod:11");
 
@@ -430,6 +450,7 @@ class WhatsAppConversationServiceTest {
         when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
         stubCleanRevalidation(10L, "Milk", "55.00", "20");
         tenant.setVendorNotificationPhoneNumber("+19998887777");
+        customer.setFullName("Priya");
         OrderResponse orderResponse = new OrderResponse(
                 100L, "ORD-2026-ABC123", customer.getId(), customer.getFullName(), customer.getPhoneNumber(),
                 com.bot.whatsappbotservice.order.OrderStatus.NEW,
@@ -451,9 +472,10 @@ class WhatsAppConversationServiceTest {
         // string was sent. Also pins down that the final receipt lists line items (product name,
         // quantity, line total), not just the order-level total.
         verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
-                eq("Thank you! Your order ORD-2026-ABC123 has been placed.\n- Milk x 3 = 165.00\n\nTotal: 165.00 INR"));
+                eq("Thank you, Priya! Your order ORD-2026-ABC123 has been placed.\n- Milk x 3 = 165.00\n\n"
+                        + "Total: 165.00 INR"));
         verify(messagingService).sendText(eq(tenant), eq((Customer) null), eq("+19998887777"),
-                eq("New order received: ORD-2026-ABC123 from +14155550100 (+14155550100). Total: 165.00 INR. "
+                eq("New order received: ORD-2026-ABC123 from Priya (+14155550100). Total: 165.00 INR. "
                         + "Please review and confirm it in your dashboard."));
     }
 
@@ -734,5 +756,139 @@ class WhatsAppConversationServiceTest {
         verify(sessionStore, never()).save(any(), any(), any());
         verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
                 argThat(text -> text.contains("menu") && text.contains("orders")));
+    }
+
+    @Test
+    void bulkOrderEntryAddsValidLinesAndReportsBadOnesPerLine() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Product milk = new Product();
+        milk.setId(10L);
+        milk.setActive(true);
+        milk.setName("Milk");
+        milk.setUnit("ltr");
+        milk.setPrice(new BigDecimal("55.00"));
+        when(productRepository.findBySkuIgnoreCase("MILK1")).thenReturn(Optional.of(milk));
+        when(productRepository.findBySkuIgnoreCase("NOPE9")).thenReturn(Optional.empty());
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(new BigDecimal("100"));
+        when(inventoryRepository.findByProductId(10L)).thenReturn(Optional.of(inventory));
+
+        conversationService.handleMessage(tenant, customer, "wamid-bulk-1", "MILK1 x 3\nNOPE9 x 2", null);
+
+        // One valid line lands in the cart, the bad one is reported — the customer never retypes
+        // the good lines because of one typo.
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().step()).isEqualTo(ConversationStep.CART_REVIEW);
+        assertThat(captor.getValue().cart()).hasSize(1);
+        assertThat(captor.getValue().cart().get(0).quantity()).isEqualByComparingTo("3");
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                argThat(text -> text.contains("Added 1 item") && text.contains("NOPE9")
+                        && text.contains("unknown product code")));
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE), anyString(), anyList(),
+                anyString());
+    }
+
+    @Test
+    void repeatWithNoPreviousOrdersSaysSoAndLeavesSessionAlone() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(orderService.listRecentForCustomer(eq(customer.getId()), eq(1))).thenReturn(List.of());
+
+        conversationService.handleMessage(tenant, customer, "wamid-repeat-1", "repeat", null);
+
+        verify(sessionStore, never()).save(any(), any(), any());
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("You don't have a previous order to repeat yet."));
+    }
+
+    @Test
+    void largeCartRemovalFallsBackToNumberedTextSelection() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CART_REVIEW);
+        for (int i = 0; i < 12; i++) {
+            session = session.withCartLineAdded(
+                    new CartLine((long) i, "Product " + i, new BigDecimal("10.00"), BigDecimal.ONE));
+        }
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+
+        conversationService.handleMessage(tenant, customer, "wamid-rm-1", null, "REMOVE");
+
+        // 12 items + back row exceeds Meta's 10-row interactive cap — the list must not be sent
+        // (Meta would reject it); a numbered text with the same option ids replaces it.
+        verify(messagingService, never()).sendInteractiveList(any(), any(), any(), any(), any(), anyList(), any());
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().lastOptionIds()).hasSize(13);
+        assertThat(captor.getValue().lastOptionIds().get(12)).isEqualTo("cart:back");
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                argThat(text -> text.contains("1. Product 0") && text.contains("12. Product 11")
+                        && text.contains("13. ")));
+    }
+
+    @Test
+    void customerPhotoBecomesConcernOnLatestOrderAndIsForwardedToVendor() {
+        tenant.setVendorNotificationPhoneNumber("+19998887777");
+        tenant.setDefaultLanguageCode("en");
+        customer.setFullName("Priya");
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CATEGORY_SELECTION);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        when(orderService.listRecentForCustomer(eq(customer.getId()), eq(1)))
+                .thenReturn(List.of(sampleOrder("ORD-77", OrderStatus.DELIVERED, new BigDecimal("120.00"),
+                        Instant.now())));
+
+        conversationService.handleMessage(tenant, customer, "wamid-img-1", null, null,
+                new InboundMedia("MEDIA123", "packet arrived torn"));
+
+        // Recorded against the latest order, customer acked in their language, photo forwarded to
+        // the vendor with full context — and the in-flight session is left untouched.
+        verify(orderService).recordConcern(1L, customer.getId(), "MEDIA123", "packet arrived torn");
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                argThat(text -> text.contains("ORD-77")));
+        verify(messagingService).sendImage(eq(tenant), org.mockito.ArgumentMatchers.isNull(), eq("+19998887777"),
+                eq("MEDIA123"),
+                argThat(caption -> caption.contains("ORD-77") && caption.contains("Priya")
+                        && caption.contains(PHONE) && caption.contains("packet arrived torn")));
+        verify(sessionStore, never()).save(any(), any(), any());
+    }
+
+    @Test
+    void customerPhotoWithNoOrdersIsStillRecordedAndForwarded() {
+        tenant.setVendorNotificationPhoneNumber("+19998887777");
+        tenant.setDefaultLanguageCode("en");
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.empty());
+        when(orderService.listRecentForCustomer(eq(customer.getId()), eq(1))).thenReturn(List.of());
+
+        conversationService.handleMessage(tenant, customer, "wamid-img-2", null, null,
+                new InboundMedia("MEDIA456", null));
+
+        verify(orderService).recordConcern(org.mockito.ArgumentMatchers.isNull(), eq(customer.getId()),
+                eq("MEDIA456"), org.mockito.ArgumentMatchers.isNull());
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                eq("📸 Thank you! We've sent your photo to the shop. They'll get back to you soon."));
+        verify(messagingService).sendImage(eq(tenant), org.mockito.ArgumentMatchers.isNull(), eq("+19998887777"),
+                eq("MEDIA456"), argThat(caption -> caption.contains("no recent order")));
+    }
+
+    @Test
+    void oversizedCheckoutSummarySplitsItemizedTextFromCompactConfirmButtons() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.CART_REVIEW);
+        for (int i = 0; i < 30; i++) {
+            session = session.withCartLineAdded(new CartLine((long) i,
+                    "Very Long Product Name Number " + i, new BigDecimal("10.00"), BigDecimal.ONE));
+        }
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+
+        conversationService.handleMessage(tenant, customer, "wamid-big-1", null, "CHECKOUT");
+
+        // The itemized order goes out as plain text (no 1024-char interactive cap there) and the
+        // CONFIRM buttons ride on a compact body that still shows the total being committed to.
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE),
+                argThat(text -> text.contains("Very Long Product Name Number 0")
+                        && text.contains("Very Long Product Name Number 29")));
+        verify(messagingService).sendInteractiveButtons(eq(tenant), eq(customer), eq(PHONE),
+                argThat(body -> body.length() <= 1024 && body.contains("30")
+                        && body.contains("300.00") && body.contains("Confirm")),
+                anyList(), anyString());
     }
 }

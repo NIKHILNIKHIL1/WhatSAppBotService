@@ -58,7 +58,7 @@ class WhatsAppWebhookServiceTest {
         webhookService.processIncoming(textMessagePayload("wamid.1", "hello"));
 
         verify(registrationGate, never()).resolveTransactingCustomer(any(), anyString(), any());
-        verify(conversationService, never()).handleMessage(any(), any(), anyString(), any(), any());
+        verify(conversationService, never()).handleMessage(any(), any(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -71,7 +71,7 @@ class WhatsAppWebhookServiceTest {
 
         verify(registrationGate, never()).resolveTransactingCustomer(any(), anyString(), any());
         verify(whatsAppMessageRepository, never()).save(any());
-        verify(conversationService, never()).handleMessage(any(), any(), anyString(), any(), any());
+        verify(conversationService, never()).handleMessage(any(), any(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -91,7 +91,7 @@ class WhatsAppWebhookServiceTest {
         verify(whatsAppMessageRepository).save(captor.capture());
         assertThat(captor.getValue().getCustomer()).isNull();
         assertThat(captor.getValue().getFromPhoneNumber()).isEqualTo("+14155550100");
-        verify(conversationService, never()).handleMessage(any(), any(), anyString(), any(), any());
+        verify(conversationService, never()).handleMessage(any(), any(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -126,14 +126,14 @@ class WhatsAppWebhookServiceTest {
         org.mockito.Mockito.doAnswer(invocation -> {
             tenantIdDuringProcessing.set(TenantContext.getTenantId());
             return null;
-        }).when(conversationService).handleMessage(eq(tenant), eq(customer), eq("wamid.1"), eq("hello"), isNull());
+        }).when(conversationService).handleMessage(eq(tenant), eq(customer), eq("wamid.1"), eq("hello"), isNull(), isNull());
 
         webhookService.processIncoming(textMessagePayload("wamid.1", "hello"));
 
         assertThat(tenantIdDuringProcessing.get()).isEqualTo(tenant.getId());
         assertThat(TenantContext.getTenantId()).isNull();
         verify(whatsAppMessageRepository).save(any(WhatsAppMessage.class));
-        verify(conversationService).handleMessage(tenant, customer, "wamid.1", "hello", null);
+        verify(conversationService).handleMessage(tenant, customer, "wamid.1", "hello", null, null);
     }
 
     private Tenant tenant() {

@@ -17,6 +17,10 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Page<Product> findByCategoryId(Long categoryId, Pageable pageable);
 
+    /** Active filter in the query (not post-fetch) so pagination counts are correct — filtering a
+     * fetched page in memory both under-fills pages and can show "empty" while actives exist. */
+    Page<Product> findByCategoryIdAndActiveTrue(Long categoryId, Pageable pageable);
+
     Page<Product> findByActiveTrue(Pageable pageable);
 
     @Query("SELECT DISTINCT p.category.id FROM Product p WHERE p.category.id IN :categoryIds AND p.active = true")

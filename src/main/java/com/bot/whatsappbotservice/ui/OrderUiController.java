@@ -88,7 +88,16 @@ public class OrderUiController {
         model.addAttribute("canRecordPayment", paymentOpen);
         model.addAttribute("canRefundPayment", order.paymentStatus() != PaymentStatus.REFUNDED
                 && order.amountPaid() != null && order.amountPaid().signum() > 0);
+        model.addAttribute("concerns", orderService.listConcerns(id));
         return "ui/orders/detail";
+    }
+
+    @PostMapping("/{id}/concerns/{concernId}/resolve")
+    public String resolveConcern(@PathVariable Long id, @PathVariable Long concernId,
+                                  RedirectAttributes redirectAttributes) {
+        orderService.resolveConcern(concernId);
+        redirectAttributes.addFlashAttribute("successMessage", "Concern marked as resolved.");
+        return "redirect:/ui/orders/" + id;
     }
 
     @GetMapping("/new")
