@@ -42,8 +42,13 @@ class NotificationServiceTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        org.springframework.context.support.ResourceBundleMessageSource messageSource =
+                new org.springframework.context.support.ResourceBundleMessageSource();
+        messageSource.setBasename("i18n/messages");
+        messageSource.setDefaultEncoding("UTF-8");
         notificationService = new NotificationService(
-                notificationRepository, orderRepository, tenantRepository, whatsAppMessagingService);
+                notificationRepository, orderRepository, tenantRepository, whatsAppMessagingService,
+                new com.bot.whatsappbotservice.i18n.WhatsAppMessages(messageSource));
         when(notificationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 

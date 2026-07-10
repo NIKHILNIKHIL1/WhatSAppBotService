@@ -18,14 +18,42 @@
             <div class="stat-card__value" th:text="${orderCount}"></div>
             <div class="stat-card__label">Orders</div>
         </div>
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${outstandingPayments.amountOutstanding()}"></div>
+            <div class="stat-card__label"
+                 th:text="'Outstanding (' + ${outstandingPayments.orderCount()} + ' orders)'"></div>
+        </div>
     </div>
 
-    <h2>Recent Orders</h2>
+    <h2 th:text="${dateFiltered} ? 'Orders in Period' : 'Recent Orders'"></h2>
+    <p>
+        <a th:href="@{/ui/dashboard}">All time</a> |
+        <a th:href="@{/ui/dashboard(fromDate=${today},toDate=${today})}">Today</a> |
+        <a th:href="@{/ui/dashboard(fromDate=${yesterday},toDate=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/dashboard(fromDate=${weekAgo},toDate=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/dashboard(fromDate=${monthStart},toDate=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/dashboard}" class="toolbar">
+        <label>From <input type="date" name="fromDate" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="toDate" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+    <div class="card-grid" th:if="${dateFiltered}">
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${periodOrderCount}"></div>
+            <div class="stat-card__label">Orders in period</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${periodRevenue}"></div>
+            <div class="stat-card__label">Revenue in period</div>
+        </div>
+    </div>
     <table th:if="${not #lists.isEmpty(recentOrders)}">
         <thead>
         <tr>
             <th>Order #</th>
             <th>Status</th>
+            <th>Payment</th>
             <th>Total</th>
             <th>Created</th>
             <th></th>
@@ -38,13 +66,18 @@
                 <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(order.status)}"
                       th:text="${order.status}"></span>
             </td>
+            <td>
+                <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(order.paymentStatus)}"
+                      th:text="${order.paymentStatus}"></span>
+            </td>
             <td th:text="${order.totalAmount} + ' ' + ${order.currencyCode}"></td>
             <td th:text="${order.createdAt}"></td>
             <td><a th:href="@{/ui/orders/{id}(id=${order.id})}">View</a></td>
         </tr>
         </tbody>
     </table>
-    <div class="empty-state" th:if="${#lists.isEmpty(recentOrders)}">No orders yet.</div>
+    <div class="empty-state" th:if="${#lists.isEmpty(recentOrders)}"
+         th:text="${dateFiltered} ? 'No orders in this period.' : 'No orders yet.'"></div>
 </section>
 </body>
 </html>

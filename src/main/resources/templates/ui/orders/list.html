@@ -8,10 +8,40 @@
         <a th:href="@{/ui/orders/new}" class="btn">New Order</a>
     </div>
     <p>
-        <a th:href="@{/ui/orders}">All</a> |
+        <a th:href="@{/ui/orders(paymentStatus=${paymentStatus},fromDate=${fromDate},toDate=${toDate})}">All</a> |
         <span th:each="s : ${statuses}">
-            <a th:href="@{/ui/orders(status=${s})}" th:text="${s}"></a>
+            <a th:href="@{/ui/orders(status=${s},paymentStatus=${paymentStatus},fromDate=${fromDate},toDate=${toDate})}"
+               th:text="${s}"></a>
         </span>
+    </p>
+    <p>
+        Payment:
+        <a th:href="@{/ui/orders(status=${status},fromDate=${fromDate},toDate=${toDate})}">All</a> |
+        <span th:each="p : ${paymentStatuses}">
+            <a th:href="@{/ui/orders(status=${status},paymentStatus=${p},fromDate=${fromDate},toDate=${toDate})}"
+               th:text="${p}"></a>
+        </span>
+    </p>
+    <p>
+        Date:
+        <a th:href="@{/ui/orders(status=${status},paymentStatus=${paymentStatus})}">All time</a> |
+        <a th:href="@{/ui/orders(status=${status},paymentStatus=${paymentStatus},fromDate=${today},toDate=${today})}">Today</a> |
+        <a th:href="@{/ui/orders(status=${status},paymentStatus=${paymentStatus},fromDate=${yesterday},toDate=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/orders(status=${status},paymentStatus=${paymentStatus},fromDate=${weekAgo},toDate=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/orders(status=${status},paymentStatus=${paymentStatus},fromDate=${monthStart},toDate=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/orders}" class="toolbar">
+        <input type="hidden" name="status" th:if="${status}" th:value="${status}"/>
+        <input type="hidden" name="paymentStatus" th:if="${paymentStatus}" th:value="${paymentStatus}"/>
+        <label>From <input type="date" name="fromDate" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="toDate" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+    <p th:if="${fromDate != null or toDate != null}">
+        <strong>Showing orders</strong>
+        <span th:if="${fromDate}" th:text="'from ' + ${fromDate}"></span>
+        <span th:if="${toDate}" th:text="'to ' + ${toDate}"></span>
+        — <a th:href="@{/ui/orders(status=${status},paymentStatus=${paymentStatus})}">clear date filter</a>
     </p>
     <table th:if="${orders.hasContent()}">
         <thead>
@@ -19,6 +49,7 @@
             <th>Order #</th>
             <th>Customer</th>
             <th>Status</th>
+            <th>Payment</th>
             <th>Channel</th>
             <th>Total</th>
             <th>Created</th>
@@ -36,6 +67,12 @@
             <td>
                 <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(order.status)}"
                       th:text="${order.status}"></span>
+            </td>
+            <td>
+                <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(order.paymentStatus)}"
+                      th:text="${order.paymentStatus}"></span>
+                <small th:if="${order.paymentStatus.name() == 'PARTIALLY_PAID'}"
+                       th:text="'due ' + ${order.amountDue()}"></small>
             </td>
             <td th:text="${order.channel}"></td>
             <td th:text="${order.totalAmount} + ' ' + ${order.currencyCode}"></td>

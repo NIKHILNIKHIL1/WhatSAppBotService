@@ -4,10 +4,13 @@ import com.bot.whatsappbotservice.common.ApiResponse;
 import com.bot.whatsappbotservice.order.dto.CreateOrderRequest;
 import com.bot.whatsappbotservice.order.dto.OrderResponse;
 import com.bot.whatsappbotservice.order.dto.OrderStatusHistoryResponse;
+import com.bot.whatsappbotservice.order.dto.RecordPaymentRequest;
 import com.bot.whatsappbotservice.order.dto.UpdateOrderStatusRequest;
 import jakarta.validation.Valid;
+import java.time.LocalDate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -43,14 +46,29 @@ public class OrderController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<OrderResponse>>> list(
-            @RequestParam(required = false) OrderStatus status, Pageable pageable) {
-        return ResponseEntity.ok(ApiResponse.ok(orderService.list(status, pageable)));
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) PaymentStatus paymentStatus,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            Pageable pageable) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.list(status, paymentStatus, fromDate, toDate, pageable)));
     }
 
     @PatchMapping("/{id}/status")
     public ResponseEntity<ApiResponse<OrderResponse>> updateStatus(
             @PathVariable Long id, @Valid @RequestBody UpdateOrderStatusRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(orderService.updateStatus(id, request)));
+    }
+
+    @PostMapping("/{id}/payment")
+    public ResponseEntity<ApiResponse<OrderResponse>> recordPayment(
+            @PathVariable Long id, @Valid @RequestBody RecordPaymentRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.recordPayment(id, request)));
+    }
+
+    @PostMapping("/{id}/payment/refund")
+    public ResponseEntity<ApiResponse<OrderResponse>> refundPayment(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.refundPayment(id)));
     }
 
     @GetMapping("/{id}/history")

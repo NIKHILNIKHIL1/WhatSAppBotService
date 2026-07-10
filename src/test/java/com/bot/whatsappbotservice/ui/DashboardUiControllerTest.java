@@ -49,10 +49,14 @@ class DashboardUiControllerTest {
     void dashboardRendersCountsAndRecentOrders() throws Exception {
         OrderResponse order = new OrderResponse(1L, "ORD-2026-XYZ789", 3L, "Priya Sharma", "+919876543210",
                 OrderStatus.NEW, OrderChannel.WHATSAPP, "INR", new BigDecimal("99.00"), new BigDecimal("99.00"),
+                com.bot.whatsappbotservice.order.PaymentStatus.UNPAID, null, BigDecimal.ZERO, null, null,
                 null, List.of(), Instant.now());
         when(productService.list(any(), any())).thenReturn(new PageImpl<>(List.of()));
         when(customerService.list(any())).thenReturn(new PageImpl<>(List.of()));
         when(orderService.list(any(), any())).thenReturn(new PageImpl<>(List.of(order)));
+        when(orderService.list(any(), any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of(order)));
+        when(orderService.outstandingPayments()).thenReturn(
+                new com.bot.whatsappbotservice.order.dto.OutstandingPaymentsSummary(1, new BigDecimal("99.00")));
 
         MvcTestResult result = mvc.get().uri("/ui/dashboard").exchange();
 
@@ -65,6 +69,9 @@ class DashboardUiControllerTest {
         when(productService.list(any(), any())).thenReturn(new PageImpl<>(List.of()));
         when(customerService.list(any())).thenReturn(new PageImpl<>(List.of()));
         when(orderService.list(any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(orderService.list(any(), any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(orderService.outstandingPayments()).thenReturn(
+                new com.bot.whatsappbotservice.order.dto.OutstandingPaymentsSummary(0, BigDecimal.ZERO));
 
         MvcTestResult result = mvc.get().uri("/ui/dashboard").exchange();
 

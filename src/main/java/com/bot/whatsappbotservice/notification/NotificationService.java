@@ -2,6 +2,7 @@ package com.bot.whatsappbotservice.notification;
 
 import com.bot.whatsappbotservice.common.TenantContext;
 import com.bot.whatsappbotservice.customer.Customer;
+import com.bot.whatsappbotservice.i18n.WhatsAppMessages;
 import com.bot.whatsappbotservice.order.OrderHeader;
 import com.bot.whatsappbotservice.order.OrderItem;
 import com.bot.whatsappbotservice.order.OrderRepository;
@@ -24,13 +25,58 @@ public class NotificationService {
     private final OrderRepository orderRepository;
     private final TenantRepository tenantRepository;
     private final WhatsAppMessagingService whatsAppMessagingService;
+    private final WhatsAppMessages messages;
 
     public NotificationService(NotificationRepository notificationRepository, OrderRepository orderRepository,
-                                TenantRepository tenantRepository, WhatsAppMessagingService whatsAppMessagingService) {
+                                TenantRepository tenantRepository, WhatsAppMessagingService whatsAppMessagingService,
+                                WhatsAppMessages messages) {
         this.notificationRepository = notificationRepository;
         this.orderRepository = orderRepository;
         this.tenantRepository = tenantRepository;
         this.whatsAppMessagingService = whatsAppMessagingService;
+        this.messages = messages;
+    }
+
+    /** Fires only on the transition to fully PAID (see {@link PaymentNotificationListener}).
+     * Localized to the customer's preferred language — unlike the older status-change message
+     * above, which predates the i18n bundle and is still English-only. */
+    @Transactional
+    public void notifyPaymentReceived(Long tenantId, Long orderId) {
+        TenantContext.setTenantId(tenantId);
+
+        OrderHeader order = orderRepository.findById(orderId).orElse(null);
+        if (order == null) {
+            log.warn("Order {} not found when sending payment-received notification", orderId);
+            return;
+        }
+        Tenant tenant = tenantRepository.findById(tenantId).orElse(null);
+        if (tenant == null) {
+            log.warn("Tenant {} not found when sending payment-received notification", tenantId);
+            return;
+        }
+        Customer customer = order.getCustomer();
+        String lang = customer.getPreferredLanguageCode() != null
+                ? customer.getPreferredLanguageCode()
+                : tenant.getDefaultLanguageCode();
+
+        Notification notification = new Notification();
+        notification.setRecipientType(RecipientType.CUSTOMER);
+        notification.setRecipientId(customer.getId());
+        notification.setChannel(NotificationChannel.WHATSAPP);
+        notification.setTemplateCode("PAYMENT_RECEIVED");
+        notification.setOrder(order);
+        notification.setStatus(NotificationStatus.PENDING);
+        notification = notificationRepository.save(notification);
+
+        String message = messages.get("bot.payment.received", lang,
+                String.valueOf(order.getAmountPaid()), order.getCurrencyCode(), order.getOrderNumber());
+        MessageStatus sendResult = whatsAppMessagingService.sendText(tenant, customer, customer.getPhoneNumber(), message);
+
+        notification.setStatus(sendResult == MessageStatus.SENT ? NotificationStatus.SENT : NotificationStatus.FAILED);
+        if (sendResult == MessageStatus.SENT) {
+            notification.setSentAt(java.time.Instant.now());
+        }
+        notificationRepository.save(notification);
     }
 
     @Transactional

@@ -43,10 +43,12 @@ class OrderHistoryPdfGeneratorTest {
         List<OrderResponse> orders = List.of(
                 new OrderResponse(1L, "ORD-1", customer.getId(), null, customer.getPhoneNumber(),
                         OrderStatus.DELIVERED, OrderChannel.WHATSAPP, "INR", new BigDecimal("100.00"),
-                        new BigDecimal("100.00"), null, List.of(), Instant.now()),
+                        new BigDecimal("100.00"), com.bot.whatsappbotservice.order.PaymentStatus.UNPAID, null,
+                        BigDecimal.ZERO, null, null, null, List.of(), Instant.now()),
                 new OrderResponse(2L, "ORD-2", customer.getId(), null, customer.getPhoneNumber(),
                         OrderStatus.NEW, OrderChannel.WHATSAPP, "INR", new BigDecimal("50.00"),
-                        new BigDecimal("50.00"), null, List.of(), Instant.now()));
+                        new BigDecimal("50.00"), com.bot.whatsappbotservice.order.PaymentStatus.UNPAID, null,
+                        BigDecimal.ZERO, null, null, null, List.of(), Instant.now()));
 
         byte[] pdf = generator.generate(tenant, customer, orders, "Last 7 days", "en");
 

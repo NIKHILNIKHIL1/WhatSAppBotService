@@ -17,16 +17,22 @@ import com.bot.whatsappbotservice.order.dto.CreateOrderRequest;
 import com.bot.whatsappbotservice.order.dto.OrderItemRequest;
 import com.bot.whatsappbotservice.order.dto.OrderResponse;
 import com.bot.whatsappbotservice.order.dto.OrderStatusHistoryResponse;
+import com.bot.whatsappbotservice.order.dto.OutstandingPaymentsSummary;
+import com.bot.whatsappbotservice.order.dto.RecordPaymentRequest;
 import com.bot.whatsappbotservice.order.dto.UpdateOrderStatusRequest;
 import com.bot.whatsappbotservice.order.event.OrderStatusChangedEvent;
+import com.bot.whatsappbotservice.order.event.PaymentRecordedEvent;
 import com.bot.whatsappbotservice.tenant.Tenant;
 import com.bot.whatsappbotservice.tenant.TenantRepository;
+import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +43,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -47,6 +54,11 @@ public class OrderService {
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String ORDER_NUMBER_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    /** "Today" in date filters means the vendor's day, not UTC. Orders store UTC instants; this is
+     * the zone whole-day filter bounds are computed in. Single-market deployment assumption: the
+     * server (or container TZ env) runs in the vendors' timezone — revisit if tenants ever span
+     * timezones, which would need a per-tenant zone column instead. */
+    private static final ZoneId VENDOR_ZONE = ZoneId.systemDefault();
 
     private final OrderRepository orderRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
@@ -181,6 +193,84 @@ public class OrderService {
         return orderMapper.toResponse(order);
     }
 
+    /**
+     * Registers a (possibly partial) payment against an order. Payment status is derived, never
+     * set by the caller: the running {@code amountPaid} against {@code totalAmount} decides
+     * PARTIALLY_PAID vs PAID, and overpayment is rejected outright. Publishing
+     * {@link PaymentRecordedEvent} after the fact keeps the WhatsApp "payment received"
+     * notification out of this module, mirroring how status changes notify.
+     */
+    @Transactional
+    public OrderResponse recordPayment(Long orderId, RecordPaymentRequest request) {
+        OrderHeader order = getOrThrow(orderId);
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new BusinessRuleViolationException(
+                    "Cannot record a payment on cancelled order " + order.getOrderNumber());
+        }
+        if (order.getPaymentStatus() == PaymentStatus.PAID) {
+            throw new BusinessRuleViolationException("Order " + order.getOrderNumber() + " is already fully paid");
+        }
+        if (order.getPaymentStatus() == PaymentStatus.REFUNDED) {
+            throw new BusinessRuleViolationException(
+                    "Order " + order.getOrderNumber() + " was refunded; no further payments can be recorded");
+        }
+        BigDecimal newAmountPaid = order.getAmountPaid().add(request.amount());
+        if (newAmountPaid.compareTo(order.getTotalAmount()) > 0) {
+            throw new BusinessRuleViolationException("Payment of " + request.amount() + " exceeds the outstanding "
+                    + "balance of " + order.getTotalAmount().subtract(order.getAmountPaid())
+                    + " on order " + order.getOrderNumber());
+        }
+
+        PaymentStatus from = order.getPaymentStatus();
+        PaymentStatus to = newAmountPaid.compareTo(order.getTotalAmount()) == 0
+                ? PaymentStatus.PAID
+                : PaymentStatus.PARTIALLY_PAID;
+        order.setAmountPaid(newAmountPaid);
+        order.setPaymentMethod(request.method());
+        if (StringUtils.hasText(request.reference())) {
+            order.setPaymentReference(request.reference());
+        }
+        order.setPaymentStatus(to);
+        if (to == PaymentStatus.PAID) {
+            order.setPaidAt(Instant.now());
+        }
+        orderRepository.save(order);
+
+        auditService.record("OrderHeader", order.getId().toString(), AuditAction.UPDATE,
+                Map.of("paymentStatus", from),
+                Map.of("paymentStatus", to, "amountPaid", newAmountPaid, "paymentMethod", request.method()),
+                AuditChannel.API);
+        log.info("Order {} payment recorded: {} via {} ({} -> {}, paid {} of {})", order.getOrderNumber(),
+                request.amount(), request.method(), from, to, newAmountPaid, order.getTotalAmount());
+        eventPublisher.publishEvent(new PaymentRecordedEvent(TenantContext.getTenantId(), order.getId(), to));
+
+        return orderMapper.toResponse(order);
+    }
+
+    /** Marks the whole recorded payment as returned to the customer — a bookkeeping flag for
+     * cancelled-after-payment orders, not a money movement (this system doesn't hold funds). */
+    @Transactional
+    public OrderResponse refundPayment(Long orderId) {
+        OrderHeader order = getOrThrow(orderId);
+        if (order.getPaymentStatus() == PaymentStatus.REFUNDED) {
+            throw new BusinessRuleViolationException("Order " + order.getOrderNumber() + " is already refunded");
+        }
+        if (order.getAmountPaid().signum() <= 0) {
+            throw new BusinessRuleViolationException(
+                    "Order " + order.getOrderNumber() + " has no recorded payment to refund");
+        }
+        PaymentStatus from = order.getPaymentStatus();
+        order.setPaymentStatus(PaymentStatus.REFUNDED);
+        orderRepository.save(order);
+
+        auditService.record("OrderHeader", order.getId().toString(), AuditAction.UPDATE,
+                Map.of("paymentStatus", from), Map.of("paymentStatus", PaymentStatus.REFUNDED), AuditChannel.API);
+        log.info("Order {} payment marked refunded ({} had been paid)", order.getOrderNumber(),
+                order.getAmountPaid());
+
+        return orderMapper.toResponse(order);
+    }
+
     @Transactional(readOnly = true)
     public OrderResponse get(Long id) {
         return orderMapper.toResponse(getOrThrow(id));
@@ -188,10 +278,66 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public Page<OrderResponse> list(OrderStatus status, Pageable pageable) {
-        Page<OrderHeader> page = status != null
-                ? orderRepository.findByStatus(status, pageable)
-                : orderRepository.findAll(pageable);
-        return page.map(orderMapper::toResponse);
+        return list(status, null, null, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> list(OrderStatus status, PaymentStatus paymentStatus, Pageable pageable) {
+        return list(status, paymentStatus, null, null, pageable);
+    }
+
+    /** All filters optional and freely combinable; dates are whole vendor-local days (see
+     * {@link #VENDOR_ZONE}), inclusive on both ends. Reversed bounds are swapped rather than
+     * rejected — a filter form should never error over which box a date was typed into. */
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> list(OrderStatus status, PaymentStatus paymentStatus,
+                                     LocalDate fromDate, LocalDate toDate, Pageable pageable) {
+        if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
+            LocalDate tmp = fromDate;
+            fromDate = toDate;
+            toDate = tmp;
+        }
+        Instant from = fromDate != null ? fromDate.atStartOfDay(VENDOR_ZONE).toInstant() : null;
+        Instant to = toDate != null ? toDate.plusDays(1).atStartOfDay(VENDOR_ZONE).toInstant() : null;
+        return orderRepository.findAll(filterSpec(status, paymentStatus, from, to), pageable)
+                .map(orderMapper::toResponse);
+    }
+
+    private static Specification<OrderHeader> filterSpec(OrderStatus status, PaymentStatus paymentStatus,
+                                                          Instant from, Instant to) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (paymentStatus != null) {
+                predicates.add(cb.equal(root.get("paymentStatus"), paymentStatus));
+            }
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), from));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThan(root.get("createdAt"), to));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+
+    /** Revenue (order totals, cancelled excluded) for whole vendor-local days [fromDate, toDate]. */
+    @Transactional(readOnly = true)
+    public BigDecimal revenueBetween(LocalDate fromDate, LocalDate toDate) {
+        Instant from = fromDate.atStartOfDay(VENDOR_ZONE).toInstant();
+        Instant to = toDate.plusDays(1).atStartOfDay(VENDOR_ZONE).toInstant();
+        BigDecimal revenue = orderRepository.sumTotalAmountBetween(from, to, OrderStatus.CANCELLED);
+        return revenue != null ? revenue : BigDecimal.ZERO;
+    }
+
+    @Transactional(readOnly = true)
+    public OutstandingPaymentsSummary outstandingPayments() {
+        List<PaymentStatus> owing = List.of(PaymentStatus.UNPAID, PaymentStatus.PARTIALLY_PAID);
+        long count = orderRepository.countByPaymentStatusInAndStatusNot(owing, OrderStatus.CANCELLED);
+        BigDecimal amount = orderRepository.sumOutstandingAmount(owing, OrderStatus.CANCELLED);
+        return new OutstandingPaymentsSummary(count, amount != null ? amount : BigDecimal.ZERO);
     }
 
     /** Storefront-facing: a customer's own orders only, never another customer's or the full

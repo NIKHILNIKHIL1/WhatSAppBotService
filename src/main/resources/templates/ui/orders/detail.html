@@ -7,6 +7,8 @@
         <h1 th:text="'Order ' + ${order.orderNumber}"></h1>
         <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(order.status)}"
               th:text="${order.status}"></span>
+        <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(order.paymentStatus)}"
+              th:text="${order.paymentStatus}"></span>
     </div>
 
     <div class="card">
@@ -17,6 +19,15 @@
         <p><strong>Channel:</strong> <span th:text="${order.channel}"></span></p>
         <p><strong>Subtotal:</strong> <span th:text="${order.subtotalAmount} + ' ' + ${order.currencyCode}"></span></p>
         <p><strong>Total:</strong> <span th:text="${order.totalAmount} + ' ' + ${order.currencyCode}"></span></p>
+        <p><strong>Paid:</strong>
+            <span th:text="${order.amountPaid} + ' ' + ${order.currencyCode}"></span>
+            <span th:if="${order.paymentMethod}" th:text="'via ' + ${order.paymentMethod}"></span>
+            <span th:if="${order.paymentReference}" th:text="'(ref: ' + ${order.paymentReference} + ')'"></span>
+        </p>
+        <p th:if="${order.amountDue().signum() > 0 and order.paymentStatus.name() != 'REFUNDED'}">
+            <strong>Due:</strong> <span th:text="${order.amountDue()} + ' ' + ${order.currencyCode}"></span>
+        </p>
+        <p th:if="${order.paidAt}"><strong>Paid at:</strong> <span th:text="${order.paidAt}"></span></p>
         <p th:if="${order.notes}"><strong>Notes:</strong> <span th:text="${order.notes}"></span></p>
         <p><strong>Created:</strong> <span th:text="${order.createdAt}"></span></p>
     </div>
@@ -55,6 +66,35 @@
                 <input type="text" id="notes" th:field="*{notes}"/>
             </div>
             <button type="submit" class="btn">Update</button>
+        </form>
+    </div>
+
+    <div class="card" th:if="${canRecordPayment}">
+        <h2>Record Payment</h2>
+        <form th:action="@{/ui/orders/{id}/payment(id=${order.id})}" th:object="${paymentForm}" method="post">
+            <div class="form-group">
+                <label for="paymentMethod">Method</label>
+                <select id="paymentMethod" th:field="*{method}">
+                    <option th:each="m : ${paymentMethods}" th:value="${m}" th:text="${m}"></option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="paymentAmount">Amount</label>
+                <input type="number" step="0.01" min="0.01" id="paymentAmount" th:field="*{amount}"/>
+            </div>
+            <div class="form-group">
+                <label for="paymentReference">Reference (UPI txn id, receipt no. — optional)</label>
+                <input type="text" id="paymentReference" th:field="*{reference}"/>
+            </div>
+            <button type="submit" class="btn">Record payment</button>
+        </form>
+    </div>
+
+    <div class="card" th:if="${canRefundPayment}">
+        <h2>Refund</h2>
+        <form th:action="@{/ui/orders/{id}/payment/refund(id=${order.id})}" method="post"
+              onsubmit="return confirm('Mark the full recorded payment as refunded?');">
+            <button type="submit" class="btn">Mark payment refunded</button>
         </form>
     </div>
 

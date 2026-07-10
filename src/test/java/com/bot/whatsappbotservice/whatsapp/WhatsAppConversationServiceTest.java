@@ -434,7 +434,8 @@ class WhatsAppConversationServiceTest {
                 100L, "ORD-2026-ABC123", customer.getId(), customer.getFullName(), customer.getPhoneNumber(),
                 com.bot.whatsappbotservice.order.OrderStatus.NEW,
                 com.bot.whatsappbotservice.order.OrderChannel.WHATSAPP, "INR", new BigDecimal("165.00"),
-                new BigDecimal("165.00"), null,
+                new BigDecimal("165.00"), com.bot.whatsappbotservice.order.PaymentStatus.UNPAID, null,
+                BigDecimal.ZERO, null, null, null,
                 List.of(new com.bot.whatsappbotservice.order.dto.OrderItemResponse(
                         1L, 10L, "Milk", new BigDecimal("55.00"), BigDecimal.valueOf(3), new BigDecimal("165.00"))),
                 java.time.Instant.now());
@@ -557,7 +558,9 @@ class WhatsAppConversationServiceTest {
 
     private OrderResponse sampleOrder(String orderNumber, OrderStatus status, BigDecimal total, Instant createdAt) {
         return new OrderResponse(1L, orderNumber, customer.getId(), null, customer.getPhoneNumber(), status,
-                OrderChannel.WHATSAPP, "INR", total, total, null, List.of(), createdAt);
+                OrderChannel.WHATSAPP, "INR", total, total,
+                com.bot.whatsappbotservice.order.PaymentStatus.UNPAID, null, BigDecimal.ZERO, null, null,
+                null, List.of(), createdAt);
     }
 
     @Test

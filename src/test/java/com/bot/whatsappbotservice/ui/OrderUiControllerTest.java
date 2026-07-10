@@ -59,13 +59,15 @@ class OrderUiControllerTest {
         OrderItemResponse item = new OrderItemResponse(1L, 2L, "Milk 1L", new BigDecimal("55.00"),
                 BigDecimal.valueOf(2), new BigDecimal("110.00"));
         return new OrderResponse(1L, "ORD-2026-ABC123", 9L, "Priya Sharma", "+919876543210", status,
-                OrderChannel.WEB, "INR", new BigDecimal("110.00"), new BigDecimal("110.00"), "please hurry",
-                List.of(item), Instant.now());
+                OrderChannel.WEB, "INR", new BigDecimal("110.00"), new BigDecimal("110.00"),
+                com.bot.whatsappbotservice.order.PaymentStatus.UNPAID, null, BigDecimal.ZERO, null, null,
+                "please hurry", List.of(item), Instant.now());
     }
 
     @Test
     void listRendersOrdersTable() throws Exception {
-        when(orderService.list(any(), any())).thenReturn(new PageImpl<>(List.of(sampleOrder(OrderStatus.NEW))));
+        when(orderService.list(any(), any(), any(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(sampleOrder(OrderStatus.NEW))));
 
         MvcTestResult result = mvc.get().uri("/ui/orders").exchange();
 
