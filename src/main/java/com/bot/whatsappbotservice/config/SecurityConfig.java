@@ -57,6 +57,8 @@ public class SecurityConfig {
                 .securityMatcher("/ui/**")
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/ui/register", "/ui/css/**").permitAll()
+                        // Belt to the @PreAuthorize braces on AdminTenantUiController/TenantService.
+                        .requestMatchers("/ui/admin/**").hasRole("SUPER_ADMIN")
                         .anyRequest().authenticated())
                 .formLogin(form -> form
                         .loginPage("/ui/login")

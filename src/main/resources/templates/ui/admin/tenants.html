@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Tenants - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1>Tenants</h1>
+    <p>Every vendor on the platform. "Setup pending" means messaging credentials haven't been
+        configured yet — the vendor's bot won't answer until they are.</p>
+    <table th:if="${not #lists.isEmpty(tenants)}">
+        <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Slug</th>
+            <th>Status</th>
+            <th>Channel</th>
+            <th>Integration</th>
+            <th>Registration policy</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="t : ${tenants}">
+            <td th:text="${t.id()}"></td>
+            <td th:text="${t.name()}"></td>
+            <td th:text="${t.slug()}"></td>
+            <td>
+                <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(t.status())}"
+                      th:text="${t.status()}"></span>
+            </td>
+            <td th:text="${t.messagingProvider()}"></td>
+            <td>
+                <span th:if="${t.whatsappAccessTokenConfigured() or t.twilioConfigured()}"
+                      class="badge badge--active">Configured</span>
+                <span th:unless="${t.whatsappAccessTokenConfigured() or t.twilioConfigured()}"
+                      class="badge badge--unpaid">Setup pending</span>
+            </td>
+            <td th:text="${t.requireCustomerRegistration()} ? 'Registered only' : 'Open'"></td>
+            <td><a th:href="@{/ui/admin/tenants/{id}/settings(id=${t.id()})}">Manage settings</a></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:if="${#lists.isEmpty(tenants)}">No tenants registered yet.</div>
+</section>
+</body>
+</html>

@@ -25,10 +25,19 @@ public class UiModelAttributesAdvice {
 
     @ModelAttribute("isVendorAdmin")
     public boolean isVendorAdmin(Authentication authentication) {
+        return hasAuthority(authentication, "ROLE_VENDOR_ADMIN");
+    }
+
+    @ModelAttribute("isSuperAdmin")
+    public boolean isSuperAdmin(Authentication authentication) {
+        return hasAuthority(authentication, "ROLE_SUPER_ADMIN");
+    }
+
+    private boolean hasAuthority(Authentication authentication, String authority) {
         if (authentication == null) {
             return false;
         }
         return authentication.getAuthorities().stream()
-                .anyMatch(authority -> "ROLE_VENDOR_ADMIN".equals(authority.getAuthority()));
+                .anyMatch(granted -> authority.equals(granted.getAuthority()));
     }
 }

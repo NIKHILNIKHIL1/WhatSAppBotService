@@ -10,14 +10,18 @@
 <header class="app-header">
     <div class="app-header__brand">WhatsAppbotService</div>
     <nav class="app-nav">
-        <a th:href="@{/ui/dashboard}">Dashboard</a>
-        <a th:href="@{/ui/products}">Products</a>
-        <a th:href="@{/ui/categories}">Categories</a>
-        <a th:href="@{/ui/inventory}">Inventory</a>
-        <a th:href="@{/ui/orders}">Orders</a>
-        <a th:href="@{/ui/customers}">Customers</a>
-        <a th:href="@{/ui/audit}" th:if="${isVendorAdmin}">Audit</a>
-        <a th:href="@{/ui/settings}" th:if="${isVendorAdmin}">Settings</a>
+        <!-- The super admin has no tenant, so tenant-scoped vendor pages would break for them —
+             they get only the admin console; vendors never see it. Settings moved there. -->
+        <th:block th:unless="${isSuperAdmin}">
+            <a th:href="@{/ui/dashboard}">Dashboard</a>
+            <a th:href="@{/ui/products}">Products</a>
+            <a th:href="@{/ui/categories}">Categories</a>
+            <a th:href="@{/ui/inventory}">Inventory</a>
+            <a th:href="@{/ui/orders}">Orders</a>
+            <a th:href="@{/ui/customers}">Customers</a>
+            <a th:href="@{/ui/audit}" th:if="${isVendorAdmin}">Audit</a>
+        </th:block>
+        <a th:href="@{/ui/admin/tenants}" th:if="${isSuperAdmin}">Tenants</a>
     </nav>
     <div class="app-header__user">
         <span th:text="${currentUserEmail}">user@example.com</span>

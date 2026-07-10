@@ -1,9 +1,12 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
-<head><title>Settings - WhatsAppbotService</title></head>
+<head><title>Tenant Settings - WhatsAppbotService</title></head>
 <body>
 <section>
-    <h1>Settings</h1>
+    <div class="toolbar">
+        <h1 th:text="'Settings — ' + ${tenant.name}"></h1>
+        <a th:href="@{/ui/admin/tenants}" class="btn btn-secondary">Back to tenants</a>
+    </div>
 
     <div class="card">
         <h2>Store Profile</h2>
@@ -15,12 +18,28 @@
     </div>
 
     <div class="card">
+        <h2>Ordering Policy</h2>
+        <p>When registration is required, only customers the vendor has added (name + WhatsApp
+            number) can order over WhatsApp — unknown numbers get a one-time "please contact us to
+            register" reply and are otherwise ignored. Blocked customers are always refused either way.</p>
+        <form th:action="@{/ui/admin/tenants/{id}/settings/ordering(id=${tenant.id})}"
+              th:object="${orderingPolicyForm}" method="post">
+            <label>
+                <input type="checkbox" th:field="*{requireCustomerRegistration}"/>
+                Require customers to be registered before they can order on WhatsApp
+            </label>
+            <div><button type="submit" class="btn">Save</button></div>
+        </form>
+    </div>
+
+    <div class="card">
         <h2>Languages</h2>
         <p>Customers pick from these languages at the start of a WhatsApp conversation.
             <strong th:text="${tenant.defaultLanguageCode}"></strong> is this store's default —
             unchecking it will be rejected, since there's currently no way to change the default
             language separately.</p>
-        <form th:action="@{/ui/settings/languages}" th:object="${languagesForm}" method="post">
+        <form th:action="@{/ui/admin/tenants/{id}/settings/languages(id=${tenant.id})}"
+              th:object="${languagesForm}" method="post">
             <div th:each="lang : ${T(com.bot.whatsappbotservice.i18n.SupportedLanguage).values()}">
                 <label>
                     <input type="checkbox" th:field="*{supportedLanguageCodes}" th:value="${lang.code()}"/>
@@ -39,7 +58,8 @@
             <strong>Access token:</strong>
             <span th:text="${tenant.whatsappAccessTokenConfigured} ? 'Configured' : 'Not configured'"></span>
         </p>
-        <form th:action="@{/ui/settings/whatsapp}" th:object="${whatsAppConfigForm}" method="post" autocomplete="off">
+        <form th:action="@{/ui/admin/tenants/{id}/settings/whatsapp(id=${tenant.id})}"
+              th:object="${whatsAppConfigForm}" method="post" autocomplete="off">
             <div class="form-group">
                 <label for="whatsappPhoneNumberId">WhatsApp phone number ID</label>
                 <input type="text" id="whatsappPhoneNumberId" th:field="*{whatsappPhoneNumberId}"
@@ -79,7 +99,8 @@
             <strong>Auth token:</strong>
             <span th:text="${tenant.twilioConfigured} ? 'Configured' : 'Not configured'"></span>
         </p>
-        <form th:action="@{/ui/settings/twilio}" th:object="${twilioConfigForm}" method="post" autocomplete="off">
+        <form th:action="@{/ui/admin/tenants/{id}/settings/twilio(id=${tenant.id})}"
+              th:object="${twilioConfigForm}" method="post" autocomplete="off">
             <div class="form-group">
                 <label for="twilioAccountSid">Twilio Account SID</label>
                 <input type="text" id="twilioAccountSid" th:field="*{twilioAccountSid}" autocomplete="off"/>

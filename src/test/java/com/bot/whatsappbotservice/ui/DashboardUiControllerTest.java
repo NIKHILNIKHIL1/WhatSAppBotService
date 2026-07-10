@@ -39,14 +39,23 @@ class DashboardUiControllerTest {
     @MockitoBean
     private CustomerService customerService;
     @MockitoBean
+    private com.bot.whatsappbotservice.tenant.TenantService tenantService;
+    @MockitoBean
     private JwtService jwtService;
     @MockitoBean
     private RequestIdFilter requestIdFilter;
     @MockitoBean
     private RateLimitingFilter rateLimitingFilter;
 
+    private void stubTenantProfile() {
+        when(tenantService.getCurrent()).thenReturn(new com.bot.whatsappbotservice.tenant.dto.TenantProfileResponse(
+                1L, "Tenant", "tenant", null, null, true, null, "en", "INR", "UTC", "ACTIVE", "META", null, false,
+                List.of("en"), true));
+    }
+
     @Test
     void dashboardRendersCountsAndRecentOrders() throws Exception {
+        stubTenantProfile();
         OrderResponse order = new OrderResponse(1L, "ORD-2026-XYZ789", 3L, "Priya Sharma", "+919876543210",
                 OrderStatus.NEW, OrderChannel.WHATSAPP, "INR", new BigDecimal("99.00"), new BigDecimal("99.00"),
                 com.bot.whatsappbotservice.order.PaymentStatus.UNPAID, null, BigDecimal.ZERO, null, null,
@@ -66,6 +75,7 @@ class DashboardUiControllerTest {
 
     @Test
     void dashboardShowsEmptyStateWithNoOrders() throws Exception {
+        stubTenantProfile();
         when(productService.list(any(), any())).thenReturn(new PageImpl<>(List.of()));
         when(customerService.list(any())).thenReturn(new PageImpl<>(List.of()));
         when(orderService.list(any(), any())).thenReturn(new PageImpl<>(List.of()));

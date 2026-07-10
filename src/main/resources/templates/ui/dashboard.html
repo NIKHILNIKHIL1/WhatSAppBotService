@@ -5,6 +5,12 @@
 <section>
     <h1>Dashboard</h1>
 
+    <div class="flash flash--error" th:if="${integrationPending}">
+        Your WhatsApp integration is being set up by the platform team — the ordering bot will not
+        answer customers until it's activated. You can prepare your catalog, inventory and customer
+        list in the meantime.
+    </div>
+
     <div class="card-grid">
         <div class="card stat-card">
             <div class="stat-card__value" th:text="${productCount}"></div>

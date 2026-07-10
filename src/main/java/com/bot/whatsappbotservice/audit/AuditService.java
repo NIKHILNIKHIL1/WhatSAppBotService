@@ -36,6 +36,27 @@ public class AuditService {
         record(entityName, entityId, action, oldValue, newValue, channel, resolvePerformedBy());
     }
 
+    /**
+     * Variant for platform-admin operations: the acting user has no tenant of their own
+     * ({@code TenantContext} is null), but the change belongs in the affected tenant's audit
+     * trail — {@code performedBy} still identifies the admin who made it.
+     */
+    @Transactional
+    public void recordForTenant(Long tenantId, String entityName, String entityId, AuditAction action,
+                                 Object oldValue, Object newValue, AuditChannel channel) {
+        AuditLog entry = new AuditLog();
+        entry.setTenantId(tenantId);
+        entry.setEntityName(entityName);
+        entry.setEntityId(entityId);
+        entry.setAction(action);
+        entry.setOldValue(toJson(oldValue));
+        entry.setNewValue(toJson(newValue));
+        entry.setPerformedBy(resolvePerformedBy());
+        entry.setIpAddress(resolveIpAddress());
+        entry.setChannel(channel);
+        auditLogRepository.save(entry);
+    }
+
     @Transactional
     public void record(String entityName, String entityId, AuditAction action, Object oldValue, Object newValue,
                         AuditChannel channel, String performedBy) {
