@@ -1,5 +1,8 @@
 package com.bot.whatsappbotservice.ui;
 
+import com.bot.whatsappbotservice.common.TenantContext;
+import com.bot.whatsappbotservice.tenant.Tenant;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -14,6 +17,23 @@ import org.springframework.web.bind.annotation.ModelAttribute;
  */
 @ControllerAdvice(basePackages = "com.bot.whatsappbotservice.ui")
 public class UiModelAttributesAdvice {
+
+    private final TenantRepository tenantRepository;
+
+    public UiModelAttributesAdvice(TenantRepository tenantRepository) {
+        this.tenantRepository = tenantRepository;
+    }
+
+    /** The vendor's business name for the header brand; null for the super admin (no tenant) and
+     * unauthenticated pages, where the layout falls back to the product name. */
+    @ModelAttribute("tenantName")
+    public String tenantName() {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            return null;
+        }
+        return tenantRepository.findById(tenantId).map(Tenant::getName).orElse(null);
+    }
 
     @ModelAttribute("currentUserEmail")
     public String currentUserEmail(Authentication authentication) {

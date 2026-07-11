@@ -8,7 +8,7 @@
 </head>
 <body>
 <header class="app-header">
-    <div class="app-header__brand">WhatsAppbotService</div>
+    <div class="app-header__brand" th:text="${tenantName} ?: 'WhatsAppbotService'">WhatsAppbotService</div>
     <nav class="app-nav">
         <!-- The super admin has no tenant, so tenant-scoped vendor pages would break for them —
              they get only the admin console; vendors never see it. Settings moved there. -->

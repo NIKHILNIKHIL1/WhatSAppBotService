@@ -1,8 +1,10 @@
 package com.bot.whatsappbotservice.order;
 
-import java.util.Map;
-import java.util.Set;
-
+/**
+ * Declaration order IS the fulfillment sequence — {@link #canTransitionTo} compares ordinals, so a
+ * new status must be inserted at its chain position, with CANCELLED kept last (it sits outside the
+ * chain and is special-cased).
+ */
 public enum OrderStatus {
     NEW,
     CONFIRMED,
@@ -13,19 +15,21 @@ public enum OrderStatus {
     DELIVERED,
     CANCELLED;
 
-    private static final Map<OrderStatus, Set<OrderStatus>> ALLOWED_TRANSITIONS = Map.of(
-            NEW, Set.of(CONFIRMED, CANCELLED),
-            CONFIRMED, Set.of(ACCEPTED, CANCELLED),
-            ACCEPTED, Set.of(PICKING, CANCELLED),
-            PICKING, Set.of(PACKED, CANCELLED),
-            PACKED, Set.of(DISPATCHED, CANCELLED),
-            DISPATCHED, Set.of(DELIVERED),
-            DELIVERED, Set.of(),
-            CANCELLED, Set.of()
-    );
-
+    /**
+     * Any forward move along the fulfillment chain is allowed, including skipping stages — a
+     * vendor who hands the order over at the counter shouldn't have to click through PICKING and
+     * PACKED to reach DELIVERED. Backward moves and leaving a terminal state are not allowed, and
+     * cancelling stops being possible once goods are DISPATCHED (a cancel releases stock, which
+     * would wrongly restock goods already out the door).
+     */
     public boolean canTransitionTo(OrderStatus target) {
-        return ALLOWED_TRANSITIONS.getOrDefault(this, Set.of()).contains(target);
+        if (isTerminal() || target == this) {
+            return false;
+        }
+        if (target == CANCELLED) {
+            return ordinal() < DISPATCHED.ordinal();
+        }
+        return target.ordinal() > ordinal();
     }
 
     public boolean isTerminal() {

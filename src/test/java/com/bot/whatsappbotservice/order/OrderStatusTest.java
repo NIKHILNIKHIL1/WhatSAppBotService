@@ -36,9 +36,17 @@ class OrderStatusTest {
     }
 
     @Test
-    void cannotSkipStagesOrGoBackwards() {
-        assertThat(OrderStatus.NEW.canTransitionTo(OrderStatus.PACKED)).isFalse();
-        assertThat(OrderStatus.DISPATCHED.canTransitionTo(OrderStatus.CANCELLED)).isFalse();
+    void forwardJumpsSkippingStagesAreAllowed() {
+        assertThat(OrderStatus.NEW.canTransitionTo(OrderStatus.PACKED)).isTrue();
+        assertThat(OrderStatus.NEW.canTransitionTo(OrderStatus.DELIVERED)).isTrue();
+        assertThat(OrderStatus.CONFIRMED.canTransitionTo(OrderStatus.DISPATCHED)).isTrue();
+    }
+
+    @Test
+    void cannotGoBackwardsCancelAfterDispatchOrStayPut() {
         assertThat(OrderStatus.PICKING.canTransitionTo(OrderStatus.CONFIRMED)).isFalse();
+        assertThat(OrderStatus.DELIVERED.canTransitionTo(OrderStatus.NEW)).isFalse();
+        assertThat(OrderStatus.DISPATCHED.canTransitionTo(OrderStatus.CANCELLED)).isFalse();
+        assertThat(OrderStatus.CONFIRMED.canTransitionTo(OrderStatus.CONFIRMED)).isFalse();
     }
 }
