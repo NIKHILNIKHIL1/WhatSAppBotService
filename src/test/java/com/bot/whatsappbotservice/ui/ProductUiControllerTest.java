@@ -11,6 +11,7 @@ import com.bot.whatsappbotservice.common.exception.DuplicateResourceException;
 import com.bot.whatsappbotservice.config.RateLimitingFilter;
 import com.bot.whatsappbotservice.config.RequestIdFilter;
 import com.bot.whatsappbotservice.security.JwtService;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import com.bot.whatsappbotservice.tenant.TenantService;
 import com.bot.whatsappbotservice.tenant.dto.TenantProfileResponse;
 import java.math.BigDecimal;
@@ -49,6 +50,11 @@ class ProductUiControllerTest {
     @MockitoBean
     private TenantService tenantService;
 
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
+
     @BeforeEach
     void setUp() {
         when(tenantService.getCurrent()).thenReturn(new TenantProfileResponse(
@@ -60,13 +66,35 @@ class ProductUiControllerTest {
     void listRendersProductsTable() throws Exception {
         ProductResponse milk = new ProductResponse(1L, "SKU-1", "Milk 1L", "desc", null, "ltr",
                 new BigDecimal("55.00"), "INR", null, true, java.util.Map.of());
-        when(productService.list(any(), any())).thenReturn(new PageImpl<>(List.of(milk)));
+        when(productService.listForManagement(any(), any())).thenReturn(new PageImpl<>(List.of(milk)));
 
         MvcTestResult result = mvc.get().uri("/ui/products").exchange();
 
         assertThat(result).hasStatusOk();
         String body = result.getResponse().getContentAsString();
         assertThat(body).contains("SKU-1").contains("Milk 1L");
+    }
+
+    @Test
+    void inactiveProductShowsReactivateButtonInsteadOfDeactivate() throws Exception {
+        ProductResponse retired = new ProductResponse(2L, "CRM-MLK", "Cream Milk", "desc", null, "ltr",
+                new BigDecimal("60.00"), "INR", null, false, java.util.Map.of());
+        when(productService.listForManagement(any(), any())).thenReturn(new PageImpl<>(List.of(retired)));
+
+        MvcTestResult result = mvc.get().uri("/ui/products").exchange();
+
+        assertThat(result).hasStatusOk();
+        String body = result.getResponse().getContentAsString();
+        assertThat(body).contains("Inactive").contains("Reactivate");
+        assertThat(body).doesNotContain(">Deactivate<");
+    }
+
+    @Test
+    void reactivateRedirectsToList() {
+        MvcTestResult result = mvc.post().uri("/ui/products/2/reactivate").exchange();
+
+        assertThat(result).hasStatus3xxRedirection();
+        assertThat(result.getResponse().getRedirectedUrl()).isEqualTo("/ui/products");
     }
 
     @Test

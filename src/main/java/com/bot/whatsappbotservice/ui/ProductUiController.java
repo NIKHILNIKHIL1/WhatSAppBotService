@@ -41,7 +41,9 @@ public class ProductUiController {
 
     @GetMapping
     public String list(@RequestParam(required = false) Long categoryId, Model model, Pageable pageable) {
-        model.addAttribute("products", productService.list(categoryId, pageable));
+        // Management view: includes deactivated products, which still own their SKU and would
+        // otherwise be invisible-but-blocking ("A product with SKU ... already exists").
+        model.addAttribute("products", productService.listForManagement(categoryId, pageable));
         model.addAttribute("categoryId", categoryId);
         return "ui/products/list";
     }
@@ -121,6 +123,13 @@ public class ProductUiController {
     public String deactivate(@PathVariable Long id, RedirectAttributes redirectAttributes) {
         productService.deactivate(id);
         redirectAttributes.addFlashAttribute("successMessage", "Product deactivated.");
+        return "redirect:/ui/products";
+    }
+
+    @PostMapping("/{id}/reactivate")
+    public String reactivate(@PathVariable Long id, RedirectAttributes redirectAttributes) {
+        productService.reactivate(id);
+        redirectAttributes.addFlashAttribute("successMessage", "Product reactivated.");
         return "redirect:/ui/products";
     }
 

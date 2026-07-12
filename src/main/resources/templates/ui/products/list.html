@@ -36,6 +36,11 @@
                       method="post" class="inline-form">
                     <button type="submit" class="link-button">Deactivate</button>
                 </form>
+                <form th:unless="${product.active}"
+                      th:action="@{/ui/products/{id}/reactivate(id=${product.id})}"
+                      method="post" class="inline-form">
+                    <button type="submit" class="link-button">Reactivate</button>
+                </form>
             </td>
         </tr>
         </tbody>

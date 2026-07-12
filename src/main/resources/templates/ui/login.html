@@ -11,6 +11,7 @@
     <h1>Vendor Login</h1>
     <div class="flash flash--error" th:if="${param.error}">Invalid email or password.</div>
     <div class="flash flash--success" th:if="${param.logout}">You have been logged out.</div>
+    <div class="flash flash--success" th:if="${successMessage}" th:text="${successMessage}"></div>
     <form th:action="@{/ui/login}" method="post">
         <div class="form-group">
             <label for="username">Email</label>
@@ -23,6 +24,7 @@
         <button type="submit" class="btn">Log in</button>
     </form>
     <div class="auth-links">
+        <a th:href="@{/ui/forgot-password}">Forgot password?</a>
         <a th:href="@{/ui/register}">Register a new vendor account</a>
     </div>
 </div>

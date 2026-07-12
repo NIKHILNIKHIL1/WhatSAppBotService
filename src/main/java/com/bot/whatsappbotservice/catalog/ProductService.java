@@ -98,11 +98,25 @@ public class ProductService {
         return productMapper.toResponse(getOrThrow(id));
     }
 
+    /** Active products only — the view for anything customer-facing (storefront, order pickers).
+     * The category branch must filter active too: deactivated products used to leak into the
+     * storefront's category view through here. */
     @Transactional(readOnly = true)
     public Page<ProductResponse> list(Long categoryId, Pageable pageable) {
         Page<Product> page = categoryId != null
-                ? productRepository.findByCategoryId(categoryId, pageable)
+                ? productRepository.findByCategoryIdAndActiveTrue(categoryId, pageable)
                 : productRepository.findByActiveTrue(pageable);
+        return page.map(productMapper::toResponse);
+    }
+
+    /** Every product including deactivated ones — the vendor management view. Deactivated
+     * products still block their SKU (deactivate() is a soft delete), so hiding them here is what
+     * made "already exists" errors unresolvable from the UI. */
+    @Transactional(readOnly = true)
+    public Page<ProductResponse> listForManagement(Long categoryId, Pageable pageable) {
+        Page<Product> page = categoryId != null
+                ? productRepository.findByCategoryId(categoryId, pageable)
+                : productRepository.findAll(pageable);
         return page.map(productMapper::toResponse);
     }
 
@@ -113,6 +127,15 @@ public class ProductService {
         productRepository.save(product);
         auditService.record("Product", id.toString(), AuditAction.DELETE, Map.of("active", true),
                 Map.of("active", false), AuditChannel.API);
+    }
+
+    @Transactional
+    public void reactivate(Long id) {
+        Product product = getOrThrow(id);
+        product.setActive(true);
+        productRepository.save(product);
+        auditService.record("Product", id.toString(), AuditAction.UPDATE, Map.of("active", false),
+                Map.of("active", true), AuditChannel.API);
     }
 
     /**

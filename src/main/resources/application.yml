@@ -69,6 +69,11 @@ app:
     # X-Twilio-Signature behind proxies/tunnels). Empty falls back to reconstructing it from the
     # incoming request, which only works when the app is reached directly over HTTPS.
     webhook-url: ${TWILIO_WEBHOOK_URL:}
+  password-reset:
+    # true = show the forgot-password reset code on screen instead of sending it over WhatsApp.
+    # DEV CONVENIENCE ONLY: while enabled, anyone who knows a vendor's email can reset their
+    # password and take over the account. Set false (or unset) before real users exist.
+    on-screen-delivery: ${PASSWORD_RESET_ON_SCREEN:true}
   rate-limit:
     enabled: ${RATE_LIMIT_ENABLED:false}
     auth:

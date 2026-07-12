@@ -49,6 +49,17 @@ public class RefreshTokenService {
         return stored.getTenantUserId();
     }
 
+    /** Revokes every live session for a user — used after a password reset, when the old
+     * credential must stop working everywhere, not just in the browser that changed it. Loops
+     * entity-by-entity rather than a bulk JPQL update so {@code @Version} stays honest. */
+    @Transactional
+    public void revokeAllForUser(Long tenantUserId) {
+        Instant now = Instant.now();
+        var activeTokens = refreshTokenRepository.findAllByTenantUserIdAndRevokedAtIsNull(tenantUserId);
+        activeTokens.forEach(rt -> rt.setRevokedAt(now));
+        refreshTokenRepository.saveAll(activeTokens);
+    }
+
     @Transactional
     public void revoke(String plaintext) {
         refreshTokenRepository.findByTokenHash(hash(plaintext)).ifPresent(rt -> {

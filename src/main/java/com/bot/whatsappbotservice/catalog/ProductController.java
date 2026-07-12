@@ -51,7 +51,9 @@ public class ProductController {
     @GetMapping
     public ResponseEntity<ApiResponse<Page<ProductResponse>>> list(
             @RequestParam(required = false) Long categoryId, Pageable pageable) {
-        return ResponseEntity.ok(ApiResponse.ok(productService.list(categoryId, pageable)));
+        // Vendor admin API: management view (includes deactivated products), matching the
+        // dashboard. Customer-facing surfaces use ProductService.list (active only).
+        return ResponseEntity.ok(ApiResponse.ok(productService.listForManagement(categoryId, pageable)));
     }
 
     @DeleteMapping("/{id}")
