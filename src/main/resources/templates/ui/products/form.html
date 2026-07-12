@@ -50,9 +50,11 @@
             <input type="number" step="0.01" id="price" th:field="*{price}"/>
             <div class="field-error" th:if="${#fields.hasErrors('price')}" th:errors="*{price}"></div>
         </div>
+        <!-- Currency is always the store's currency (tenant settings); a per-product override was
+             a display lie — orders are billed in the tenant currency regardless. -->
         <div class="form-group">
-            <label for="currencyCode">Currency code</label>
-            <input type="text" id="currencyCode" th:field="*{currencyCode}" placeholder="INR"/>
+            <label>Currency</label>
+            <p>Uses your store&#39;s currency (see store settings).</p>
         </div>
         <div class="form-group">
             <label for="imageUrl">Image URL</label>

@@ -14,6 +14,7 @@ import com.bot.whatsappbotservice.customer.CustomerService;
 import com.bot.whatsappbotservice.customer.CustomerStatus;
 import com.bot.whatsappbotservice.customer.dto.CustomerResponse;
 import com.bot.whatsappbotservice.security.JwtService;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -41,6 +42,10 @@ class CustomerUiControllerTest {
     private RequestIdFilter requestIdFilter;
     @MockitoBean
     private RateLimitingFilter rateLimitingFilter;
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
 
     @Test
     void listRendersCustomersTable() throws Exception {

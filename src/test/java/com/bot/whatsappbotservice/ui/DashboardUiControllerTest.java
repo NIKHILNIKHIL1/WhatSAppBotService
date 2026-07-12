@@ -13,6 +13,7 @@ import com.bot.whatsappbotservice.order.OrderService;
 import com.bot.whatsappbotservice.order.OrderStatus;
 import com.bot.whatsappbotservice.order.dto.OrderResponse;
 import com.bot.whatsappbotservice.security.JwtService;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -46,6 +47,10 @@ class DashboardUiControllerTest {
     private RequestIdFilter requestIdFilter;
     @MockitoBean
     private RateLimitingFilter rateLimitingFilter;
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
 
     private void stubTenantProfile() {
         when(tenantService.getCurrent()).thenReturn(new com.bot.whatsappbotservice.tenant.dto.TenantProfileResponse(

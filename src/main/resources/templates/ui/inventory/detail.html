@@ -36,6 +36,18 @@
         <div class="field-error" th:if="${#fields.hasGlobalErrors()}" th:errors="*{global}"></div>
         <button type="submit" class="btn">Apply</button>
     </form>
+
+    <h2>Low-stock alert</h2>
+    <form th:action="@{/ui/inventory/{id}/reorder-level(id=${inventory.productId})}"
+          th:object="${reorderLevelForm}" method="post" class="card">
+        <div class="form-group">
+            <label for="reorderLevel">Reorder level (0 = alerts off)</label>
+            <input type="number" step="0.001" id="reorderLevel" th:field="*{reorderLevel}"/>
+            <div class="field-error" th:if="${#fields.hasErrors('reorderLevel')}" th:errors="*{reorderLevel}"></div>
+        </div>
+        <p>When stock drops to or below this level, a WhatsApp alert is sent to the store's vendor number.</p>
+        <button type="submit" class="btn">Save</button>
+    </form>
 </section>
 </body>
 </html>

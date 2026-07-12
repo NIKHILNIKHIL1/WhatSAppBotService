@@ -9,6 +9,7 @@ import com.bot.whatsappbotservice.catalog.dto.CategoryResponse;
 import com.bot.whatsappbotservice.config.RateLimitingFilter;
 import com.bot.whatsappbotservice.config.RequestIdFilter;
 import com.bot.whatsappbotservice.security.JwtService;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import com.bot.whatsappbotservice.tenant.TenantService;
 import com.bot.whatsappbotservice.tenant.dto.TenantProfileResponse;
 import java.util.List;
@@ -40,6 +41,10 @@ class CategoryUiControllerTest {
     private RateLimitingFilter rateLimitingFilter;
     @MockitoBean
     private TenantService tenantService;
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
 
     @BeforeEach
     void setUp() {

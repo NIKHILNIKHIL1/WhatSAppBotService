@@ -11,6 +11,7 @@ import com.bot.whatsappbotservice.audit.dto.AuditLogResponse;
 import com.bot.whatsappbotservice.config.RateLimitingFilter;
 import com.bot.whatsappbotservice.config.RequestIdFilter;
 import com.bot.whatsappbotservice.security.JwtService;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
@@ -39,6 +40,10 @@ class AuditUiControllerTest {
     private RequestIdFilter requestIdFilter;
     @MockitoBean
     private RateLimitingFilter rateLimitingFilter;
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
 
     @Test
     @WithMockUser(roles = "VENDOR_ADMIN")

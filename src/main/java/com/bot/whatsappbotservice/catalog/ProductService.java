@@ -6,6 +6,7 @@ import com.bot.whatsappbotservice.audit.AuditService;
 import com.bot.whatsappbotservice.catalog.dto.CreateProductRequest;
 import com.bot.whatsappbotservice.catalog.dto.ProductResponse;
 import com.bot.whatsappbotservice.catalog.dto.UpdateProductRequest;
+import com.bot.whatsappbotservice.common.TenantContext;
 import com.bot.whatsappbotservice.common.exception.BusinessRuleViolationException;
 import com.bot.whatsappbotservice.common.exception.DuplicateResourceException;
 import com.bot.whatsappbotservice.common.exception.ResourceNotFoundException;
@@ -14,13 +15,14 @@ import com.bot.whatsappbotservice.i18n.Translation;
 import com.bot.whatsappbotservice.i18n.TranslationDto;
 import com.bot.whatsappbotservice.inventory.Inventory;
 import com.bot.whatsappbotservice.inventory.InventoryRepository;
+import com.bot.whatsappbotservice.tenant.Tenant;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import java.math.BigDecimal;
 import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 @Service
 public class ProductService {
@@ -30,30 +32,33 @@ public class ProductService {
     private final InventoryRepository inventoryRepository;
     private final ProductMapper productMapper;
     private final AuditService auditService;
+    private final TenantRepository tenantRepository;
 
     public ProductService(ProductRepository productRepository, CategoryRepository categoryRepository,
                            InventoryRepository inventoryRepository, ProductMapper productMapper,
-                           AuditService auditService) {
+                           AuditService auditService, TenantRepository tenantRepository) {
         this.productRepository = productRepository;
         this.categoryRepository = categoryRepository;
         this.inventoryRepository = inventoryRepository;
         this.productMapper = productMapper;
         this.auditService = auditService;
+        this.tenantRepository = tenantRepository;
     }
 
     @Transactional
     public ProductResponse create(CreateProductRequest request) {
-        if (productRepository.existsBySkuIgnoreCase(request.sku())) {
-            throw new DuplicateResourceException("A product with SKU '" + request.sku() + "' already exists");
+        String sku = normalizeSku(request.sku());
+        if (productRepository.existsBySkuIgnoreCase(sku)) {
+            throw new DuplicateResourceException("A product with SKU '" + sku + "' already exists");
         }
 
         Product product = new Product();
-        product.setSku(request.sku());
+        product.setSku(sku);
         product.setName(request.name());
         product.setDescription(request.description());
         product.setUnit(request.unit());
         product.setPrice(request.price());
-        product.setCurrencyCode(StringUtils.hasText(request.currencyCode()) ? request.currencyCode() : "INR");
+        product.setCurrencyCode(resolveTenantCurrency());
         product.setImageUrl(request.imageUrl());
         product.setCategory(resolveCategory(request.categoryId()));
         applyTranslations(product, request.translations());
@@ -80,7 +85,7 @@ public class ProductService {
         product.setDescription(request.description());
         product.setUnit(request.unit());
         product.setPrice(request.price());
-        product.setCurrencyCode(StringUtils.hasText(request.currencyCode()) ? request.currencyCode() : "INR");
+        product.setCurrencyCode(resolveTenantCurrency());
         product.setImageUrl(request.imageUrl());
         product.setActive(request.active());
         product.setCategory(resolveCategory(request.categoryId()));
@@ -167,5 +172,24 @@ public class ProductService {
     private Product getOrThrow(Long id) {
         return productRepository.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.of("Product", id));
+    }
+
+    /** Canonical stored form, matched by V11's unique index on (tenant_id, lower(sku)): trimmed
+     * and uppercased so 'crm-mlk' and 'CRM-MLK ' can never coexist as distinct products — the
+     * bot's SKU quick-order lookup is case-insensitive and assumes exactly one match. */
+    private static String normalizeSku(String sku) {
+        return sku.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    /** Product currency is always the tenant's — a caller-supplied value is deliberately ignored.
+     * Orders were already billed in the tenant currency ({@code OrderService.resolveTenantCurrency})
+     * regardless of what the product claimed, so a divergent product currency was a display lie
+     * waiting to confuse a customer. Same INR fallback idiom as OrderService for non-web contexts. */
+    private String resolveTenantCurrency() {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            return "INR";
+        }
+        return tenantRepository.findById(tenantId).map(Tenant::getCurrencyCode).orElse("INR");
     }
 }

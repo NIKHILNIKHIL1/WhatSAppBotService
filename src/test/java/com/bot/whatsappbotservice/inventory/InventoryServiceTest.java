@@ -12,6 +12,7 @@ import com.bot.whatsappbotservice.catalog.Product;
 import com.bot.whatsappbotservice.common.exception.BusinessRuleViolationException;
 import com.bot.whatsappbotservice.inventory.dto.AdjustStockRequest;
 import com.bot.whatsappbotservice.inventory.dto.InventoryTransactionResponse;
+import com.bot.whatsappbotservice.inventory.event.LowStockEvent;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -31,6 +33,9 @@ class InventoryServiceTest {
 
     @Mock
     private InventoryTransactionRepository inventoryTransactionRepository;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private InventoryMapper inventoryMapper;
     private PlatformTransactionManager transactionManager;
@@ -45,7 +50,8 @@ class InventoryServiceTest {
         transactionManager = mock(PlatformTransactionManager.class);
         when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
         inventoryService = new InventoryService(
-                inventoryRepository, inventoryTransactionRepository, inventoryMapper, transactionManager);
+                inventoryRepository, inventoryTransactionRepository, inventoryMapper, transactionManager,
+                eventPublisher);
     }
 
     @Test
@@ -126,11 +132,81 @@ class InventoryServiceTest {
         verify(transactionManager, never()).getTransaction(any());
     }
 
+    @Test
+    void adjustStockPublishesLowStockEventWhenCrossingReorderLevel() {
+        when(inventoryRepository.findByProductIdForUpdate(PRODUCT_ID))
+                .thenReturn(Optional.of(inventory(BigDecimal.TEN, BigDecimal.valueOf(8))));
+        when(inventoryRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(inventoryTransactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.adjustStock(PRODUCT_ID, new AdjustStockRequest(
+                InventoryTransactionType.SALE, BigDecimal.valueOf(-3), "ORDER", 100L, null));
+
+        verify(eventPublisher).publishEvent(any(LowStockEvent.class));
+    }
+
+    @Test
+    void adjustStockDoesNotAlertAgainWhileAlreadyBelowReorderLevel() {
+        // Already at/below the level before this sale — the crossing alert already fired earlier.
+        when(inventoryRepository.findByProductIdForUpdate(PRODUCT_ID))
+                .thenReturn(Optional.of(inventory(BigDecimal.valueOf(5), BigDecimal.valueOf(8))));
+        when(inventoryRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(inventoryTransactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.adjustStock(PRODUCT_ID, new AdjustStockRequest(
+                InventoryTransactionType.SALE, BigDecimal.valueOf(-2), "ORDER", 100L, null));
+
+        verify(eventPublisher, never()).publishEvent(any(LowStockEvent.class));
+    }
+
+    @Test
+    void adjustStockNeverAlertsWhenReorderLevelIsZero() {
+        when(inventoryRepository.findByProductIdForUpdate(PRODUCT_ID))
+                .thenReturn(Optional.of(inventory(BigDecimal.TEN, BigDecimal.ZERO)));
+        when(inventoryRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(inventoryTransactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.adjustStock(PRODUCT_ID, new AdjustStockRequest(
+                InventoryTransactionType.SALE, BigDecimal.TEN.negate(), "ORDER", 100L, null));
+
+        verify(eventPublisher, never()).publishEvent(any(LowStockEvent.class));
+    }
+
+    @Test
+    void restockingDoesNotPublishLowStockEvent() {
+        when(inventoryRepository.findByProductIdForUpdate(PRODUCT_ID))
+                .thenReturn(Optional.of(inventory(BigDecimal.valueOf(2), BigDecimal.valueOf(8))));
+        when(inventoryRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(inventoryTransactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.adjustStock(PRODUCT_ID, new AdjustStockRequest(
+                InventoryTransactionType.RECEIPT, BigDecimal.valueOf(50), "PURCHASE", null, null));
+
+        verify(eventPublisher, never()).publishEvent(any(LowStockEvent.class));
+    }
+
+    @Test
+    void updateReorderLevelPersistsNewLevel() {
+        Inventory stored = inventory(BigDecimal.TEN, BigDecimal.ZERO);
+        when(inventoryRepository.findByProductId(PRODUCT_ID)).thenReturn(Optional.of(stored));
+        when(inventoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.updateReorderLevel(PRODUCT_ID, BigDecimal.valueOf(12));
+
+        assertThat(stored.getReorderLevel()).isEqualByComparingTo("12");
+        verify(inventoryRepository).save(stored);
+    }
+
     private Inventory inventory(BigDecimal quantityOnHand) {
+        return inventory(quantityOnHand, BigDecimal.ZERO);
+    }
+
+    private Inventory inventory(BigDecimal quantityOnHand, BigDecimal reorderLevel) {
         Inventory inventory = new Inventory();
         inventory.setId(1L);
         inventory.setProduct(new Product());
         inventory.setQuantityOnHand(quantityOnHand);
+        inventory.setReorderLevel(reorderLevel);
         return inventory;
     }
 }

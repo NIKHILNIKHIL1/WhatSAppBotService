@@ -21,6 +21,7 @@ import com.bot.whatsappbotservice.order.dto.OrderItemResponse;
 import com.bot.whatsappbotservice.order.dto.OrderResponse;
 import com.bot.whatsappbotservice.order.dto.OrderStatusHistoryResponse;
 import com.bot.whatsappbotservice.security.JwtService;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -54,6 +55,10 @@ class OrderUiControllerTest {
     private RequestIdFilter requestIdFilter;
     @MockitoBean
     private RateLimitingFilter rateLimitingFilter;
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
 
     private OrderResponse sampleOrder(OrderStatus status) {
         OrderItemResponse item = new OrderItemResponse(1L, 2L, "Milk 1L", new BigDecimal("55.00"),

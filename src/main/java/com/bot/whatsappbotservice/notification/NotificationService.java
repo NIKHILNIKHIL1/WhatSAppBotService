@@ -3,6 +3,8 @@ package com.bot.whatsappbotservice.notification;
 import com.bot.whatsappbotservice.common.TenantContext;
 import com.bot.whatsappbotservice.customer.Customer;
 import com.bot.whatsappbotservice.i18n.WhatsAppMessages;
+import com.bot.whatsappbotservice.inventory.Inventory;
+import com.bot.whatsappbotservice.inventory.InventoryRepository;
 import com.bot.whatsappbotservice.order.OrderConcern;
 import com.bot.whatsappbotservice.order.OrderConcernRepository;
 import com.bot.whatsappbotservice.order.OrderHeader;
@@ -28,19 +30,61 @@ public class NotificationService {
     private final OrderRepository orderRepository;
     private final OrderConcernRepository orderConcernRepository;
     private final TenantRepository tenantRepository;
+    private final InventoryRepository inventoryRepository;
     private final WhatsAppMessagingService whatsAppMessagingService;
     private final WhatsAppMessages messages;
 
     public NotificationService(NotificationRepository notificationRepository, OrderRepository orderRepository,
                                 OrderConcernRepository orderConcernRepository,
-                                TenantRepository tenantRepository, WhatsAppMessagingService whatsAppMessagingService,
+                                TenantRepository tenantRepository, InventoryRepository inventoryRepository,
+                                WhatsAppMessagingService whatsAppMessagingService,
                                 WhatsAppMessages messages) {
         this.notificationRepository = notificationRepository;
         this.orderRepository = orderRepository;
         this.orderConcernRepository = orderConcernRepository;
         this.tenantRepository = tenantRepository;
+        this.inventoryRepository = inventoryRepository;
         this.whatsAppMessagingService = whatsAppMessagingService;
         this.messages = messages;
+    }
+
+    /** Tells the vendor, in the tenant's default language, that a product just crossed its reorder
+     * level. Fired once per downward crossing (see {@code InventoryService.doAdjust}). */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyLowStock(Long tenantId, Long productId) {
+        TenantContext.setTenantId(tenantId);
+
+        Inventory inventory = inventoryRepository.findByProductId(productId).orElse(null);
+        if (inventory == null) {
+            log.warn("Inventory for product {} not found when sending low-stock notification", productId);
+            return;
+        }
+        Tenant tenant = tenantRepository.findById(tenantId).orElse(null);
+        if (tenant == null || tenant.getVendorNotificationPhoneNumber() == null
+                || tenant.getVendorNotificationPhoneNumber().isBlank()) {
+            log.info("Tenant {} has no vendor notification number configured; skipping low-stock alert", tenantId);
+            return;
+        }
+
+        Notification notification = new Notification();
+        notification.setRecipientType(RecipientType.VENDOR);
+        notification.setRecipientId(tenant.getId());
+        notification.setChannel(NotificationChannel.WHATSAPP);
+        notification.setTemplateCode("LOW_STOCK");
+        notification.setStatus(NotificationStatus.PENDING);
+        notification = notificationRepository.save(notification);
+
+        String message = messages.get("vendor.low_stock", tenant.getDefaultLanguageCode(),
+                inventory.getProduct().getName(), inventory.getProduct().getSku(),
+                String.valueOf(inventory.getQuantityOnHand()), String.valueOf(inventory.getReorderLevel()));
+        MessageStatus sendResult = whatsAppMessagingService.sendText(tenant, null,
+                tenant.getVendorNotificationPhoneNumber(), message);
+
+        notification.setStatus(sendResult == MessageStatus.SENT ? NotificationStatus.SENT : NotificationStatus.FAILED);
+        if (sendResult == MessageStatus.SENT) {
+            notification.setSentAt(java.time.Instant.now());
+        }
+        notificationRepository.save(notification);
     }
 
     /** Closes the loop on a photo concern: tells the customer, in their language, that the shop

@@ -509,6 +509,25 @@ public class WhatsAppConversationService {
             return;
         }
 
+        // Fail at selection time, not checkout: quantities the shop can't fulfil are rejected here
+        // with the available amount, instead of letting the customer build a doomed cart. Counts
+        // what's already in the cart for this product, since checkout will deduct the sum. No
+        // inventory row = no check (lenient) — order creation remains the hard gate either way.
+        var inventory = inventoryRepository.findByProductId(product.getId()).orElse(null);
+        if (inventory != null) {
+            BigDecimal alreadyInCart = session.cart().stream()
+                    .filter(cartLine -> cartLine.productId().equals(product.getId()))
+                    .map(CartLine::quantity)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal available = inventory.getQuantityOnHand().subtract(alreadyInCart);
+            if (available.compareTo(quantity) < 0) {
+                messagingService.sendText(tenant, customer, customer.getPhoneNumber(),
+                        messages.get("bot.quantity.insufficient_stock", lang, product.getLocalizedName(lang),
+                                String.valueOf(available.max(BigDecimal.ZERO))));
+                return;
+            }
+        }
+
         CartLine line = new CartLine(product.getId(), product.getLocalizedName(lang), product.getPrice(), quantity);
         WhatsAppSession updated = session.withCartLineAdded(line).withStep(ConversationStep.CART_REVIEW);
         sendCartSummary(tenant, customer, updated);

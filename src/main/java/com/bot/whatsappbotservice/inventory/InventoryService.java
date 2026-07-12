@@ -1,14 +1,17 @@
 package com.bot.whatsappbotservice.inventory;
 
+import com.bot.whatsappbotservice.common.TenantContext;
 import com.bot.whatsappbotservice.common.exception.BusinessRuleViolationException;
 import com.bot.whatsappbotservice.common.exception.ResourceNotFoundException;
 import com.bot.whatsappbotservice.inventory.dto.AdjustStockRequest;
+import com.bot.whatsappbotservice.inventory.event.LowStockEvent;
 import com.bot.whatsappbotservice.inventory.dto.InventoryOverviewResponse;
 import com.bot.whatsappbotservice.inventory.dto.InventoryResponse;
 import com.bot.whatsappbotservice.inventory.dto.InventoryTransactionResponse;
 import java.math.BigDecimal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -40,15 +43,26 @@ public class InventoryService {
     private final InventoryTransactionRepository inventoryTransactionRepository;
     private final InventoryMapper inventoryMapper;
     private final TransactionTemplate transactionTemplate;
+    private final ApplicationEventPublisher eventPublisher;
 
     public InventoryService(InventoryRepository inventoryRepository,
                              InventoryTransactionRepository inventoryTransactionRepository,
                              InventoryMapper inventoryMapper,
-                             PlatformTransactionManager transactionManager) {
+                             PlatformTransactionManager transactionManager,
+                             ApplicationEventPublisher eventPublisher) {
         this.inventoryRepository = inventoryRepository;
         this.inventoryTransactionRepository = inventoryTransactionRepository;
         this.inventoryMapper = inventoryMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.eventPublisher = eventPublisher;
+    }
+
+    /** Reorder level 0 (the default) means low-stock alerting is off for that product. */
+    @Transactional
+    public InventoryResponse updateReorderLevel(Long productId, BigDecimal reorderLevel) {
+        Inventory inventory = getInventoryOrThrow(productId);
+        inventory.setReorderLevel(reorderLevel);
+        return inventoryMapper.toResponse(inventoryRepository.save(inventory));
     }
 
     public InventoryResponse get(Long productId) {
@@ -105,12 +119,23 @@ public class InventoryService {
                     "Insufficient stock for product " + productId + ": have " + inventory.getQuantityOnHand()
                             + ", requested change " + request.quantityDelta());
         }
+        BigDecimal quantityBefore = inventory.getQuantityOnHand();
         inventory.setQuantityOnHand(newQuantity);
         // saveAndFlush (not save) so the version check happens now: when this runs nested inside a
         // larger transaction (e.g. order creation), Hibernate would otherwise defer the UPDATE — and
         // its optimistic-lock check — until that outer transaction commits, long after this retry
         // loop has already returned and stopped watching for OptimisticLockingFailureException.
         inventoryRepository.saveAndFlush(inventory);
+
+        // Alert only on the downward *crossing* of the reorder level (level 0 = alerting off):
+        // one alert per dip rather than one per sale while low, re-armed by restocking above the
+        // level. Published inside the transaction; the AFTER_COMMIT listener means a rolled-back
+        // adjustment (e.g. an order that fails on a later line) never produces a false alarm.
+        BigDecimal reorderLevel = inventory.getReorderLevel();
+        if (reorderLevel != null && reorderLevel.signum() > 0
+                && quantityBefore.compareTo(reorderLevel) > 0 && newQuantity.compareTo(reorderLevel) <= 0) {
+            eventPublisher.publishEvent(new LowStockEvent(TenantContext.getTenantId(), productId));
+        }
 
         InventoryTransaction transaction = new InventoryTransaction();
         transaction.setInventory(inventory);

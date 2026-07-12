@@ -11,6 +11,7 @@ import com.bot.whatsappbotservice.common.exception.DuplicateResourceException;
 import com.bot.whatsappbotservice.config.RateLimitingFilter;
 import com.bot.whatsappbotservice.config.RequestIdFilter;
 import com.bot.whatsappbotservice.security.JwtService;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import com.bot.whatsappbotservice.tenant.TenantService;
 import com.bot.whatsappbotservice.tenant.dto.TenantProfileResponse;
 import java.util.List;
@@ -39,6 +40,10 @@ class AdminTenantUiControllerTest {
     private RequestIdFilter requestIdFilter;
     @MockitoBean
     private RateLimitingFilter rateLimitingFilter;
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
 
     private TenantProfileResponse sampleProfile(boolean tokenConfigured) {
         return new TenantProfileResponse(1L, "Acme Dairy", "acme-dairy", "PHONE_ID", "WABA_ID",

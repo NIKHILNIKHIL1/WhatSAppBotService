@@ -9,6 +9,7 @@ import com.bot.whatsappbotservice.config.RateLimitingFilter;
 import com.bot.whatsappbotservice.config.RequestIdFilter;
 import com.bot.whatsappbotservice.security.JwtService;
 import com.bot.whatsappbotservice.tenant.Tenant;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import com.bot.whatsappbotservice.whatsapp.MessageStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +44,10 @@ class StorefrontAuthControllerTest {
     private RequestIdFilter requestIdFilter;
     @MockitoBean
     private RateLimitingFilter rateLimitingFilter;
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
 
     @Test
     void loginFormRenders() throws Exception {

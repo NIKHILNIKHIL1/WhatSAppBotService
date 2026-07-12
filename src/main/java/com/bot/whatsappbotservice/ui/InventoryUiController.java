@@ -3,6 +3,7 @@ package com.bot.whatsappbotservice.ui;
 import com.bot.whatsappbotservice.common.exception.BusinessRuleViolationException;
 import com.bot.whatsappbotservice.inventory.InventoryService;
 import com.bot.whatsappbotservice.ui.form.InventoryAdjustmentForm;
+import com.bot.whatsappbotservice.ui.form.ReorderLevelForm;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Controller;
@@ -33,11 +34,32 @@ public class InventoryUiController {
 
     @GetMapping("/{productId}")
     public String detail(@PathVariable Long productId, Model model) {
-        model.addAttribute("inventory", inventoryService.get(productId));
+        var inventory = inventoryService.get(productId);
+        model.addAttribute("inventory", inventory);
         if (!model.containsAttribute("adjustmentForm")) {
             model.addAttribute("adjustmentForm", new InventoryAdjustmentForm());
         }
+        if (!model.containsAttribute("reorderLevelForm")) {
+            ReorderLevelForm reorderLevelForm = new ReorderLevelForm();
+            reorderLevelForm.setReorderLevel(inventory.reorderLevel());
+            model.addAttribute("reorderLevelForm", reorderLevelForm);
+        }
         return "ui/inventory/detail";
+    }
+
+    @PostMapping("/{productId}/reorder-level")
+    public String updateReorderLevel(@PathVariable Long productId,
+                                      @Valid @ModelAttribute("reorderLevelForm") ReorderLevelForm form,
+                                      BindingResult bindingResult, Model model,
+                                      RedirectAttributes redirectAttributes) {
+        if (bindingResult.hasErrors()) {
+            repopulateDetailModel(productId, model);
+            return "ui/inventory/detail";
+        }
+        inventoryService.updateReorderLevel(productId, form.getReorderLevel());
+        redirectAttributes.addFlashAttribute("successMessage",
+                "Reorder level updated. You'll get a WhatsApp alert when stock drops to this level.");
+        return "redirect:/ui/inventory/" + productId;
     }
 
     @PostMapping("/{productId}/adjust")
@@ -45,18 +67,33 @@ public class InventoryUiController {
                           @Valid @ModelAttribute("adjustmentForm") InventoryAdjustmentForm form,
                           BindingResult bindingResult, Model model, RedirectAttributes redirectAttributes) {
         if (bindingResult.hasErrors()) {
-            model.addAttribute("inventory", inventoryService.get(productId));
+            repopulateDetailModel(productId, model);
             return "ui/inventory/detail";
         }
         try {
             inventoryService.adjustStock(productId, form.toRequest());
         } catch (BusinessRuleViolationException e) {
             bindingResult.reject("error", e.getMessage());
-            model.addAttribute("inventory", inventoryService.get(productId));
+            repopulateDetailModel(productId, model);
             return "ui/inventory/detail";
         }
         redirectAttributes.addFlashAttribute("successMessage", "Stock adjusted.");
         return "redirect:/ui/inventory/" + productId;
+    }
+
+    /** The detail template binds both forms; any error re-render must supply whichever form the
+     * failed POST didn't bind, or Thymeleaf blows up on the missing model attribute. */
+    private void repopulateDetailModel(Long productId, Model model) {
+        var inventory = inventoryService.get(productId);
+        model.addAttribute("inventory", inventory);
+        if (!model.containsAttribute("adjustmentForm")) {
+            model.addAttribute("adjustmentForm", new InventoryAdjustmentForm());
+        }
+        if (!model.containsAttribute("reorderLevelForm")) {
+            ReorderLevelForm reorderLevelForm = new ReorderLevelForm();
+            reorderLevelForm.setReorderLevel(inventory.reorderLevel());
+            model.addAttribute("reorderLevelForm", reorderLevelForm);
+        }
     }
 
     @GetMapping("/{productId}/history")

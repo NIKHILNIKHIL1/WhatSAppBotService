@@ -13,6 +13,7 @@ import com.bot.whatsappbotservice.inventory.InventoryService;
 import com.bot.whatsappbotservice.inventory.dto.InventoryOverviewResponse;
 import com.bot.whatsappbotservice.inventory.dto.InventoryResponse;
 import com.bot.whatsappbotservice.security.JwtService;
+import com.bot.whatsappbotservice.tenant.TenantRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,33 @@ class InventoryUiControllerTest {
     private RequestIdFilter requestIdFilter;
     @MockitoBean
     private RateLimitingFilter rateLimitingFilter;
+
+    // UiModelAttributesAdvice (@ControllerAdvice over all of com.bot.whatsappbotservice.ui) needs
+    // this on every UI slice test; without it the whole context fails to load.
+    @MockitoBean
+    private TenantRepository tenantRepository;
+
+    @Test
+    void detailRendersReorderLevelForm() throws Exception {
+        InventoryResponse inventory = new InventoryResponse(1L, 5L, new BigDecimal("42"), BigDecimal.TEN);
+        when(inventoryService.get(5L)).thenReturn(inventory);
+
+        MvcTestResult result = mvc.get().uri("/ui/inventory/5").exchange();
+
+        assertThat(result).hasStatusOk();
+        assertThat(result.getResponse().getContentAsString()).contains("Low-stock alert");
+    }
+
+    @Test
+    void updatingReorderLevelRedirectsToDetail() {
+        MvcTestResult result = mvc.post().uri("/ui/inventory/5/reorder-level")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .param("reorderLevel", "12")
+                .exchange();
+
+        assertThat(result).hasStatus3xxRedirection();
+        assertThat(result.getResponse().getRedirectedUrl()).isEqualTo("/ui/inventory/5");
+    }
 
     @Test
     void listRendersInventoryOverview() throws Exception {

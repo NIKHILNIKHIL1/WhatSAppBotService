@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.bot.whatsappbotservice.customer.Customer;
+import com.bot.whatsappbotservice.inventory.Inventory;
+import com.bot.whatsappbotservice.inventory.InventoryRepository;
 import com.bot.whatsappbotservice.order.OrderHeader;
 import com.bot.whatsappbotservice.order.OrderItem;
 import com.bot.whatsappbotservice.order.OrderRepository;
@@ -37,6 +39,8 @@ class NotificationServiceTest {
     @Mock
     private TenantRepository tenantRepository;
     @Mock
+    private InventoryRepository inventoryRepository;
+    @Mock
     private WhatsAppMessagingService whatsAppMessagingService;
 
     private NotificationService notificationService;
@@ -50,8 +54,51 @@ class NotificationServiceTest {
         messageSource.setDefaultEncoding("UTF-8");
         notificationService = new NotificationService(
                 notificationRepository, orderRepository, orderConcernRepository, tenantRepository,
-                whatsAppMessagingService, new com.bot.whatsappbotservice.i18n.WhatsAppMessages(messageSource));
+                inventoryRepository, whatsAppMessagingService,
+                new com.bot.whatsappbotservice.i18n.WhatsAppMessages(messageSource));
         when(notificationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    void lowStockAlertGoesToVendorNumberAndIsRecorded() {
+        Tenant tenant = tenant();
+        tenant.setVendorNotificationPhoneNumber("+919999900000");
+        tenant.setDefaultLanguageCode("en");
+        when(tenantRepository.findById(7L)).thenReturn(Optional.of(tenant));
+        com.bot.whatsappbotservice.catalog.Product product = new com.bot.whatsappbotservice.catalog.Product();
+        product.setName("Cream Milk");
+        product.setSku("CRM-MLK");
+        Inventory inventory = new Inventory();
+        inventory.setProduct(product);
+        inventory.setQuantityOnHand(new BigDecimal("7"));
+        inventory.setReorderLevel(new BigDecimal("8"));
+        when(inventoryRepository.findByProductId(42L)).thenReturn(Optional.of(inventory));
+        when(whatsAppMessagingService.sendText(any(), any(), anyString(), anyString()))
+                .thenReturn(MessageStatus.SENT);
+
+        notificationService.notifyLowStock(7L, 42L);
+
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(whatsAppMessagingService).sendText(eq(tenant), any(), eq("+919999900000"), body.capture());
+        assertThat(body.getValue()).contains("CRM-MLK").contains("7").contains("8");
+        ArgumentCaptor<Notification> saved = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, org.mockito.Mockito.times(2)).save(saved.capture());
+        assertThat(saved.getValue().getTemplateCode()).isEqualTo("LOW_STOCK");
+        assertThat(saved.getValue().getStatus()).isEqualTo(NotificationStatus.SENT);
+    }
+
+    @Test
+    void lowStockAlertSkippedWhenNoVendorNumberConfigured() {
+        Tenant tenant = tenant();
+        tenant.setVendorNotificationPhoneNumber(null);
+        when(tenantRepository.findById(7L)).thenReturn(Optional.of(tenant));
+        Inventory inventory = new Inventory();
+        inventory.setProduct(new com.bot.whatsappbotservice.catalog.Product());
+        when(inventoryRepository.findByProductId(42L)).thenReturn(Optional.of(inventory));
+
+        notificationService.notifyLowStock(7L, 42L);
+
+        verify(whatsAppMessagingService, never()).sendText(any(), any(), anyString(), anyString());
     }
 
     @Test

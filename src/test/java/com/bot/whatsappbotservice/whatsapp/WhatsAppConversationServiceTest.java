@@ -310,6 +310,54 @@ class WhatsAppConversationServiceTest {
     }
 
     @Test
+    void quantityExceedingStockIsRejectedWithAvailableAmount() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.QUANTITY_ENTRY)
+                .withCategory(5L).withSelectedProduct(10L);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Product milk = new Product();
+        milk.setId(10L);
+        milk.setActive(true);
+        milk.setName("Milk");
+        milk.setUnit("ltr");
+        milk.setPrice(new BigDecimal("55.00"));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(milk));
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(new BigDecimal("4"));
+        when(inventoryRepository.findByProductId(10L)).thenReturn(Optional.of(inventory));
+
+        conversationService.handleMessage(tenant, customer, "wamid-4c", "9", null);
+
+        // Nothing added to the cart, step unchanged — the customer can just send a smaller number.
+        verify(sessionStore, never()).save(any(), any(), any());
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(messagingService).sendText(eq(tenant), eq(customer), eq(PHONE), body.capture());
+        assertThat(body.getValue()).contains("4");
+    }
+
+    @Test
+    void quantityWithinStockStillAddsToCart() {
+        WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.QUANTITY_ENTRY)
+                .withCategory(5L).withSelectedProduct(10L);
+        when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
+        Product milk = new Product();
+        milk.setId(10L);
+        milk.setActive(true);
+        milk.setName("Milk");
+        milk.setUnit("ltr");
+        milk.setPrice(new BigDecimal("55.00"));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(milk));
+        Inventory inventory = new Inventory();
+        inventory.setQuantityOnHand(new BigDecimal("4"));
+        when(inventoryRepository.findByProductId(10L)).thenReturn(Optional.of(inventory));
+
+        conversationService.handleMessage(tenant, customer, "wamid-4d", "3", null);
+
+        ArgumentCaptor<WhatsAppSession> captor = ArgumentCaptor.forClass(WhatsAppSession.class);
+        verify(sessionStore).save(eq(TENANT_ID), eq(PHONE), captor.capture());
+        assertThat(captor.getValue().cart()).hasSize(1);
+    }
+
+    @Test
     void invalidQuantityRepromptsWithoutAdvancing() {
         WhatsAppSession session = WhatsAppSession.initial().withStep(ConversationStep.QUANTITY_ENTRY).withSelectedProduct(10L);
         when(sessionStore.get(TENANT_ID, PHONE)).thenReturn(Optional.of(session));
