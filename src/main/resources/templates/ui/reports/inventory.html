@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Inventory &amp; Stock - WhatsAppbotService</title></head>
+<body>
+<section>
+    <p><a th:href="@{/ui/reports(from=${fromDate},to=${toDate})}">&larr; Back to Reports</a></p>
+    <h1>Inventory &amp; Stock Movements</h1>
+
+    <p>
+        <a th:href="@{/ui/reports/inventory}">All time</a> |
+        <a th:href="@{/ui/reports/inventory(from=${today},to=${today})}">Today</a> |
+        <a th:href="@{/ui/reports/inventory(from=${yesterday},to=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/reports/inventory(from=${weekAgo},to=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/reports/inventory(from=${monthStart},to=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/reports/inventory}" class="toolbar">
+        <label>From <input type="date" name="from" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="to" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+
+    <p th:if="${dateRange != null}">
+        <strong th:text="${#temporals.format(dateRange.from(), 'dd MMM yyyy')}"></strong>
+        &ndash;
+        <strong th:text="${#temporals.format(dateRange.to(), 'dd MMM yyyy')}"></strong>
+        &ensp;
+        <a th:href="@{/ui/reports/inventory/export(from=${fromDate},to=${toDate})}"
+           class="btn btn--outline">&#8595; Export CSV</a>
+    </p>
+
+    <table th:if="${movements != null and !movements.isEmpty()}">
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Stock In</th>
+            <th>Stock Out</th>
+            <th>Net Change</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="m : ${movements}">
+            <td th:text="${#temporals.format(m.date(), 'dd MMM yyyy')}"></td>
+            <td th:text="${'+' + #numbers.formatDecimal(m.totalIn(), 1, 'COMMA', 0, 'POINT')}"></td>
+            <td th:text="${'-' + #numbers.formatDecimal(m.totalOut(), 1, 'COMMA', 0, 'POINT')}"></td>
+            <td th:text="${#numbers.formatDecimal(m.netChange(), 1, 'COMMA', 0, 'POINT')}"
+                th:class="${m.netChange().signum() >= 0} ? 'positive' : 'negative'"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:if="${movements == null or movements.isEmpty()}">
+        No stock movements in this period.
+    </div>
+</section>
+</body>
+</html>

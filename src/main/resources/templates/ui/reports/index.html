@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Reports - WhatsAppbotService</title></head>
+<body>
+<section>
+    <h1>Reports &mdash; Overview</h1>
+
+    <p>
+        <a th:href="@{/ui/reports}">All time</a> |
+        <a th:href="@{/ui/reports(from=${today},to=${today})}">Today</a> |
+        <a th:href="@{/ui/reports(from=${yesterday},to=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/reports(from=${weekAgo},to=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/reports(from=${monthStart},to=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/reports}" class="toolbar">
+        <label>From <input type="date" name="from" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="to" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+
+    <p th:if="${dateRange != null}">
+        Showing data for
+        <strong th:text="${#temporals.format(dateRange.from(), 'dd MMM yyyy')}"></strong>
+        &ndash;
+        <strong th:text="${#temporals.format(dateRange.to(), 'dd MMM yyyy')}"></strong>
+        (<span th:text="${dateRange.days()}"></span>
+        <span th:text="${dateRange.days() == 1 ? 'day' : 'days'}"></span>)
+    </p>
+
+    <!-- KPI tiles -->
+    <div class="card-grid" th:if="${overview != null}">
+        <div class="card stat-card">
+            <div class="stat-card__value"
+                 th:text="${currency + ' ' + #numbers.formatDecimal(overview.periodRevenue, 1, 'COMMA', 2, 'POINT')}">—</div>
+            <div class="stat-card__label">Revenue</div>
+            <div class="stat-card__trend stat-card__trend--up"
+                 th:if="${overview.revenueGrowthPercent != null and overview.revenueGrowthPercent >= 0}"
+                 th:text="${'+' + overview.revenueGrowthPercent + '%'}"></div>
+            <div class="stat-card__trend stat-card__trend--down"
+                 th:if="${overview.revenueGrowthPercent != null and overview.revenueGrowthPercent < 0}"
+                 th:text="${overview.revenueGrowthPercent + '%'}"></div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${overview.periodOrders}">—</div>
+            <div class="stat-card__label">Orders</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value"
+                 th:text="${currency + ' ' + #numbers.formatDecimal(overview.averageOrderValue, 1, 'COMMA', 2, 'POINT')}">—</div>
+            <div class="stat-card__label">Avg Order Value</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value"
+                 th:text="${currency + ' ' + #numbers.formatDecimal(overview.outstandingAmount, 1, 'COMMA', 2, 'POINT')}">—</div>
+            <div class="stat-card__label">Outstanding</div>
+            <div class="stat-card__sub" th:text="${overview.outstandingOrderCount + ' orders'}"></div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${overview.newCustomers}">—</div>
+            <div class="stat-card__label">New Customers</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${overview.activeCustomers}">—</div>
+            <div class="stat-card__label">Active Customers</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value"
+                 th:text="${#numbers.formatDecimal(overview.itemsSold, 1, 'COMMA', 0, 'POINT')}">—</div>
+            <div class="stat-card__label">Items Sold</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value" th:text="${overview.openConcerns}">—</div>
+            <div class="stat-card__label">Open Concerns</div>
+        </div>
+    </div>
+
+    <!-- Placeholder tiles when overview not yet loaded (should not happen in practice) -->
+    <div class="card-grid" th:unless="${overview != null}">
+        <div class="card stat-card" th:each="label : ${ {'Revenue','Orders','Avg Order Value','Outstanding','New Customers','Active Customers','Items Sold','Open Concerns'} }">
+            <div class="stat-card__value">—</div>
+            <div class="stat-card__label" th:text="${label}"></div>
+        </div>
+    </div>
+
+    <h2>Reports</h2>
+    <ul>
+        <li><a th:href="@{/ui/reports/revenue(from=${fromDate},to=${toDate})}">Revenue &amp; Sales</a></li>
+        <li><a th:href="@{/ui/reports/products(from=${fromDate},to=${toDate})}">Product Performance</a></li>
+        <li><a th:href="@{/ui/reports/customers(from=${fromDate},to=${toDate})}">Customer Analytics</a></li>
+        <li><a th:href="@{/ui/reports/inventory(from=${fromDate},to=${toDate})}">Inventory &amp; Stock</a></li>
+        <li><a th:href="@{/ui/reports/orders(from=${fromDate},to=${toDate})}">Order Operations</a></li>
+        <li><a th:href="@{/ui/reports/payments(from=${fromDate},to=${toDate})}">Payment Collection</a></li>
+        <li><a th:href="@{/ui/reports/whatsapp(from=${fromDate},to=${toDate})}">WhatsApp Engagement</a></li>
+    </ul>
+</section>
+</body>
+</html>

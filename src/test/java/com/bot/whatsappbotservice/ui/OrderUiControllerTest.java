@@ -22,9 +22,12 @@ import com.bot.whatsappbotservice.order.dto.OrderResponse;
 import com.bot.whatsappbotservice.order.dto.OrderStatusHistoryResponse;
 import com.bot.whatsappbotservice.security.JwtService;
 import com.bot.whatsappbotservice.tenant.TenantRepository;
+import com.bot.whatsappbotservice.tenant.TenantService;
+import com.bot.whatsappbotservice.tenant.dto.TenantProfileResponse;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +53,8 @@ class OrderUiControllerTest {
     @MockitoBean
     private ProductService productService;
     @MockitoBean
+    private TenantService tenantService;
+    @MockitoBean
     private JwtService jwtService;
     @MockitoBean
     private RequestIdFilter requestIdFilter;
@@ -59,6 +64,13 @@ class OrderUiControllerTest {
     // this on every UI slice test; without it the whole context fails to load.
     @MockitoBean
     private TenantRepository tenantRepository;
+
+    @BeforeEach
+    void stubTenantService() {
+        when(tenantService.getCurrent()).thenReturn(new TenantProfileResponse(
+                1L, "Tenant", "tenant", null, null, true, null, "en", "INR", "UTC",
+                "ACTIVE", "META", null, false, List.of("en"), true));
+    }
 
     private OrderResponse sampleOrder(OrderStatus status) {
         OrderItemResponse item = new OrderItemResponse(1L, 2L, "Milk 1L", new BigDecimal("55.00"),

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Customer Analytics - WhatsAppbotService</title></head>
+<body>
+<section>
+    <p><a th:href="@{/ui/reports(from=${fromDate},to=${toDate})}">&larr; Back to Reports</a></p>
+    <h1>Customer Analytics</h1>
+
+    <p>
+        <a th:href="@{/ui/reports/customers}">All time</a> |
+        <a th:href="@{/ui/reports/customers(from=${today},to=${today})}">Today</a> |
+        <a th:href="@{/ui/reports/customers(from=${yesterday},to=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/reports/customers(from=${weekAgo},to=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/reports/customers(from=${monthStart},to=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/reports/customers}" class="toolbar">
+        <label>From <input type="date" name="from" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="to" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+
+    <p th:if="${dateRange != null}">
+        <strong th:text="${#temporals.format(dateRange.from(), 'dd MMM yyyy')}"></strong>
+        &ndash;
+        <strong th:text="${#temporals.format(dateRange.to(), 'dd MMM yyyy')}"></strong>
+        &mdash; top 20 customers by spend
+        &ensp;
+        <a th:href="@{/ui/reports/customers/export(from=${fromDate},to=${toDate})}"
+           class="btn btn--outline">&#8595; Export CSV</a>
+    </p>
+
+    <table th:if="${customers != null and !customers.isEmpty()}">
+        <thead>
+        <tr>
+            <th>#</th>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Orders</th>
+            <th>Total Spend (<span th:text="${currency}"></span>)</th>
+            <th>Last Order</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="c, stat : ${customers}">
+            <td th:text="${stat.index + 1}"></td>
+            <td th:text="${c.fullName()}"></td>
+            <td th:text="${c.phoneNumber()}"></td>
+            <td th:text="${c.lifetimeOrders()}"></td>
+            <td th:text="${#numbers.formatDecimal(c.lifetimeSpend(), 1, 'COMMA', 2, 'POINT')}"></td>
+            <td th:text="${#temporals.format(c.lastOrderAt(), 'dd MMM yyyy', 'UTC')}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:if="${customers == null or customers.isEmpty()}">
+        No orders placed in this period.
+    </div>
+</section>
+</body>
+</html>

@@ -73,7 +73,7 @@ public class DashboardUiController {
         model.addAttribute("dateFiltered", dateFiltered);
         model.addAttribute("fromDate", fromDate);
         model.addAttribute("toDate", toDate);
-        DateFilterPresets.addTo(model);
+        DateFilterPresets.addTo(model, DateFilterPresets.resolveZone(tenant.timezone()));
 
         if (dateFiltered) {
             // Whole-day defaults for a half-open input: only "from" means from-that-day-onward,

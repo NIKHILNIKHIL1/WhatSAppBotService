@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Payment Collection - WhatsAppbotService</title></head>
+<body>
+<section>
+    <p><a th:href="@{/ui/reports(from=${fromDate},to=${toDate})}">&larr; Back to Reports</a></p>
+    <h1>Payment Collection</h1>
+
+    <p>
+        <a th:href="@{/ui/reports/payments}">All time</a> |
+        <a th:href="@{/ui/reports/payments(from=${today},to=${today})}">Today</a> |
+        <a th:href="@{/ui/reports/payments(from=${yesterday},to=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/reports/payments(from=${weekAgo},to=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/reports/payments(from=${monthStart},to=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/reports/payments}" class="toolbar">
+        <label>From <input type="date" name="from" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="to" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+
+    <p th:if="${dateRange != null}">
+        <strong th:text="${#temporals.format(dateRange.from(), 'dd MMM yyyy')}"></strong>
+        &ndash;
+        <strong th:text="${#temporals.format(dateRange.to(), 'dd MMM yyyy')}"></strong>
+        &ensp;
+        <a th:href="@{/ui/reports/payments/export(from=${fromDate},to=${toDate})}"
+           class="btn btn--outline">&#8595; Export Receivables CSV</a>
+    </p>
+
+    <!-- Period KPIs -->
+    <div class="card-grid" th:if="${paymentSummary != null}">
+        <div class="card stat-card">
+            <div class="stat-card__value"
+                 th:text="${currency + ' ' + #numbers.formatDecimal(paymentSummary.totalBilled(), 1, 'COMMA', 2, 'POINT')}"></div>
+            <div class="stat-card__label">Billed (period)</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value"
+                 th:text="${currency + ' ' + #numbers.formatDecimal(paymentSummary.totalCollected(), 1, 'COMMA', 2, 'POINT')}"></div>
+            <div class="stat-card__label">Collected (period)</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value"
+                 th:text="${#numbers.formatDecimal(paymentSummary.collectionRate(), 1, 'COMMA', 1, 'POINT') + '%'}"></div>
+            <div class="stat-card__label">Collection Rate</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-card__value"
+                 th:text="${currency + ' ' + #numbers.formatDecimal(paymentSummary.overdueAmount(), 1, 'COMMA', 2, 'POINT')}"></div>
+            <div class="stat-card__label">Total Outstanding <small>(all orders)</small></div>
+            <div class="stat-card__sub" th:text="${paymentSummary.overdueCount() + ' orders'}"></div>
+        </div>
+    </div>
+
+    <!-- Outstanding receivables table -->
+    <h2>Outstanding Receivables</h2>
+    <table th:if="${receivables != null and !receivables.isEmpty()}">
+        <thead>
+        <tr>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Unpaid Orders</th>
+            <th>Outstanding (<span th:text="${currency}"></span>)</th>
+            <th>Oldest Unpaid</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="r : ${receivables}">
+            <td th:text="${r.customerName()}"></td>
+            <td th:text="${r.phoneNumber()}"></td>
+            <td th:text="${r.unpaidOrderCount()}"></td>
+            <td th:text="${#numbers.formatDecimal(r.outstandingAmount(), 1, 'COMMA', 2, 'POINT')}"></td>
+            <td th:text="${r.oldestUnpaidOrderAt() != null ? #temporals.format(r.oldestUnpaidOrderAt(), 'dd MMM yyyy', 'UTC') : '—'}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:if="${receivables == null or receivables.isEmpty()}">
+        No outstanding receivables. All orders are paid.
+    </div>
+</section>
+</body>
+</html>

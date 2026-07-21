@@ -10,6 +10,7 @@ import com.bot.whatsappbotservice.order.PaymentMethod;
 import com.bot.whatsappbotservice.order.PaymentStatus;
 import com.bot.whatsappbotservice.order.dto.CreateOrderRequest;
 import com.bot.whatsappbotservice.order.dto.OrderResponse;
+import com.bot.whatsappbotservice.tenant.TenantService;
 import com.bot.whatsappbotservice.ui.form.OrderForm;
 import com.bot.whatsappbotservice.ui.form.OrderStatusForm;
 import com.bot.whatsappbotservice.ui.form.PaymentForm;
@@ -38,12 +39,14 @@ public class OrderUiController {
     private final OrderService orderService;
     private final CustomerService customerService;
     private final ProductService productService;
+    private final TenantService tenantService;
 
     public OrderUiController(OrderService orderService, CustomerService customerService,
-                              ProductService productService) {
+                              ProductService productService, TenantService tenantService) {
         this.orderService = orderService;
         this.customerService = customerService;
         this.productService = productService;
+        this.tenantService = tenantService;
     }
 
     @GetMapping
@@ -59,7 +62,7 @@ public class OrderUiController {
         model.addAttribute("paymentStatuses", PaymentStatus.values());
         model.addAttribute("fromDate", fromDate);
         model.addAttribute("toDate", toDate);
-        DateFilterPresets.addTo(model);
+        DateFilterPresets.addTo(model, DateFilterPresets.resolveZone(tenantService.getCurrent().timezone()));
         return "ui/orders/list";
     }
 

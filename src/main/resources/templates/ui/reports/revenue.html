@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Revenue &amp; Sales - WhatsAppbotService</title></head>
+<body>
+<section>
+    <p><a th:href="@{/ui/reports(from=${fromDate},to=${toDate})}">&larr; Back to Reports</a></p>
+    <h1>Revenue &amp; Sales</h1>
+
+    <p>
+        <a th:href="@{/ui/reports/revenue}">All time</a> |
+        <a th:href="@{/ui/reports/revenue(from=${today},to=${today})}">Today</a> |
+        <a th:href="@{/ui/reports/revenue(from=${yesterday},to=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/reports/revenue(from=${weekAgo},to=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/reports/revenue(from=${monthStart},to=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/reports/revenue}" class="toolbar">
+        <label>From <input type="date" name="from" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="to" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+
+    <p th:if="${dateRange != null}">
+        <strong th:text="${#temporals.format(dateRange.from(), 'dd MMM yyyy')}"></strong>
+        &ndash;
+        <strong th:text="${#temporals.format(dateRange.to(), 'dd MMM yyyy')}"></strong>
+        &ensp;
+        <a th:href="@{/ui/reports/revenue/export(from=${fromDate},to=${toDate})}"
+           class="btn btn--outline">&#8595; Export CSV</a>
+    </p>
+
+    <table th:if="${dailyRevenue != null and !dailyRevenue.isEmpty()}">
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Orders</th>
+            <th>Revenue (<span th:text="${currency}"></span>)</th>
+            <th>Avg Order Value (<span th:text="${currency}"></span>)</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="row : ${dailyRevenue}">
+            <td th:text="${#temporals.format(row.date(), 'dd MMM yyyy')}"></td>
+            <td th:text="${row.orderCount()}"></td>
+            <td th:text="${#numbers.formatDecimal(row.revenue(), 1, 'COMMA', 2, 'POINT')}"></td>
+            <td th:text="${#numbers.formatDecimal(row.averageOrderValue(), 1, 'COMMA', 2, 'POINT')}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:if="${dailyRevenue == null or dailyRevenue.isEmpty()}">
+        No orders in this period.
+    </div>
+</section>
+</body>
+</html>

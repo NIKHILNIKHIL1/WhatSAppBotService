@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>WhatsApp Engagement - WhatsAppbotService</title></head>
+<body>
+<section>
+    <p><a th:href="@{/ui/reports(from=${fromDate},to=${toDate})}">&larr; Back to Reports</a></p>
+    <h1>WhatsApp Engagement</h1>
+
+    <p>
+        <a th:href="@{/ui/reports/whatsapp}">All time</a> |
+        <a th:href="@{/ui/reports/whatsapp(from=${today},to=${today})}">Today</a> |
+        <a th:href="@{/ui/reports/whatsapp(from=${yesterday},to=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/reports/whatsapp(from=${weekAgo},to=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/reports/whatsapp(from=${monthStart},to=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/reports/whatsapp}" class="toolbar">
+        <label>From <input type="date" name="from" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="to" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+
+    <p th:if="${dateRange != null}">
+        <strong th:text="${#temporals.format(dateRange.from(), 'dd MMM yyyy')}"></strong>
+        &ndash;
+        <strong th:text="${#temporals.format(dateRange.to(), 'dd MMM yyyy')}"></strong>
+        &ensp;
+        <a th:href="@{/ui/reports/whatsapp/export(from=${fromDate},to=${toDate})}"
+           class="btn btn--outline">&#8595; Export CSV</a>
+    </p>
+
+    <table th:if="${engagement != null and !engagement.isEmpty()}">
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Sent</th>
+            <th>Delivered</th>
+            <th>Read</th>
+            <th>Failed</th>
+            <th>Inbound</th>
+            <th>Delivery Rate</th>
+            <th>Read Rate</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="e : ${engagement}">
+            <td th:text="${#temporals.format(e.date(), 'dd MMM yyyy')}"></td>
+            <td th:text="${e.sent()}"></td>
+            <td th:text="${e.delivered()}"></td>
+            <td th:text="${e.read()}"></td>
+            <td th:text="${e.failed()}"></td>
+            <td th:text="${e.inbound()}"></td>
+            <td th:text="${#numbers.formatDecimal(e.deliveryRate(), 1, 'COMMA', 1, 'POINT') + '%'}"></td>
+            <td th:text="${#numbers.formatDecimal(e.readRate(), 1, 'COMMA', 1, 'POINT') + '%'}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:if="${engagement == null or engagement.isEmpty()}">
+        No WhatsApp messages in this period.
+    </div>
+</section>
+</body>
+</html>

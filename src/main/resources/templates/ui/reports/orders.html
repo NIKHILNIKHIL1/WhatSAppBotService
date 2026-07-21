@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{fragments/layout :: page(~{::title}, ~{::section})}">
+<head><title>Order Operations - WhatsAppbotService</title></head>
+<body>
+<section>
+    <p><a th:href="@{/ui/reports(from=${fromDate},to=${toDate})}">&larr; Back to Reports</a></p>
+    <h1>Order Operations</h1>
+
+    <p>
+        <a th:href="@{/ui/reports/orders}">All time</a> |
+        <a th:href="@{/ui/reports/orders(from=${today},to=${today})}">Today</a> |
+        <a th:href="@{/ui/reports/orders(from=${yesterday},to=${yesterday})}">Yesterday</a> |
+        <a th:href="@{/ui/reports/orders(from=${weekAgo},to=${today})}">Last 7 days</a> |
+        <a th:href="@{/ui/reports/orders(from=${monthStart},to=${today})}">This month</a>
+    </p>
+    <form method="get" th:action="@{/ui/reports/orders}" class="toolbar">
+        <label>From <input type="date" name="from" th:value="${fromDate}"/></label>
+        <label>To <input type="date" name="to" th:value="${toDate}"/></label>
+        <button type="submit" class="btn">Apply</button>
+    </form>
+
+    <p th:if="${dateRange != null}">
+        <strong th:text="${#temporals.format(dateRange.from(), 'dd MMM yyyy')}"></strong>
+        &ndash;
+        <strong th:text="${#temporals.format(dateRange.to(), 'dd MMM yyyy')}"></strong>
+        &ensp;
+        <a th:href="@{/ui/reports/orders/export(from=${fromDate},to=${toDate})}"
+           class="btn btn--outline">&#8595; Export CSV</a>
+    </p>
+
+    <h2>Orders by Status</h2>
+    <table th:if="${statusCounts != null and !statusCounts.isEmpty()}">
+        <thead>
+        <tr>
+            <th>Status</th>
+            <th>Count</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="entry : ${statusCounts.entrySet()}">
+            <td>
+                <span class="badge" th:classappend="'badge--' + ${#strings.toLowerCase(entry.key)}"
+                      th:text="${entry.key}"></span>
+            </td>
+            <td th:text="${entry.value}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="empty-state" th:if="${statusCounts == null or statusCounts.isEmpty()}">
+        No orders in this period.
+    </div>
+
+    <p><a th:href="@{/ui/orders(fromDate=${fromDate},toDate=${toDate})}">View all orders &rarr;</a></p>
+</section>
+</body>
+</html>
